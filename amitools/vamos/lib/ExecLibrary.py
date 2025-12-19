@@ -6,6 +6,7 @@ from amitools.vamos.libstructs import (
     ExecLibraryStruct,
     StackSwapStruct,
     IORequestStruct,
+    MsgPortStruct,
     ListStruct,
     NodeStruct,
     NodeType,
@@ -50,6 +51,8 @@ class ExecLibrary(LibImpl):
         self.port_mgr = PortManager(ctx.alloc)
         self.semaphore_mgr = SemaphoreManager(ctx.alloc, ctx.mem)
         self.mem = ctx.mem
+        # simple signal allocator bitmap
+        self._signals = [False] * 32
 
     def set_this_task(self, process):
         self.exec_lib.this_task.aptr = process.this_task.addr
@@ -97,6 +100,28 @@ class ExecLibrary(LibImpl):
             % (new_signals, signal_mask, old_signals)
         )
         return old_signals
+
+    def AllocSignal(self, ctx):
+        sig = ctx.cpu.r_reg(REG_D0)
+        chosen = -1
+        if sig == 0xFFFFFFFF or sig == -1 or sig >= len(self._signals) or sig < 0:
+            for idx, used in enumerate(self._signals):
+                if not used:
+                    chosen = idx
+                    self._signals[idx] = True
+                    break
+        elif 0 <= sig < len(self._signals) and not self._signals[sig]:
+            self._signals[sig] = True
+            chosen = sig
+        log_exec.info("AllocSignal(%d) -> %d", sig, chosen)
+        return chosen
+
+    def FreeSignal(self, ctx):
+        sig = ctx.cpu.r_reg(REG_D0)
+        if 0 <= sig < len(self._signals):
+            self._signals[sig] = False
+        log_exec.info("FreeSignal(%d)", sig)
+        return 0
 
     def StackSwap(self, ctx):
         stsw_ptr = ctx.cpu.r_reg(REG_A0)
@@ -413,6 +438,9 @@ class ExecLibrary(LibImpl):
         port_addr = ctx.cpu.r_reg(REG_A0)
         msg_addr = ctx.cpu.r_reg(REG_A1)
         log_exec.info("PutMsg: port=%06x msg=%06x" % (port_addr, msg_addr))
+        if port_addr == 0:
+            print(f"[PutMsg] ignoring null port for msg=0x{msg_addr:x}")
+            return
         has_port = self.port_mgr.has_port(port_addr)
         if not has_port:
             raise VamosInternalError(
@@ -438,6 +466,19 @@ class ExecLibrary(LibImpl):
 
     def CreateMsgPort(self, ctx):
         port = self.port_mgr.create_port("exec_port", None)
+        # initialize msgport fields
+        mp = AccessStruct(ctx.mem, MsgPortStruct, port)
+        ctx.mem.w_block(port, b"\x00" * MsgPortStruct.get_size())
+        mp.w_s("mp_Node.ln_Type", NodeType.NT_MSGPORT)
+        mp.w_s("mp_Flags", 0)
+        mp.w_s("mp_SigBit", 0)
+        mp.w_s("mp_SigTask", self.exec_lib.this_task.aptr)
+        lst_off = MsgPortStruct.sdef.find_field_def_by_name("mp_MsgList").offset
+        lst = AccessStruct(ctx.mem, ListStruct, port + lst_off)
+        lst.w_s("lh_Head", 0)
+        lst.w_s("lh_Tail", 0)
+        lst.w_s("lh_TailPred", 0)
+        lst.w_s("lh_Type", NodeType.NT_MESSAGE)
         log_exec.info("CreateMsgPort: -> port=%06x" % (port))
         return port
 
@@ -491,6 +532,22 @@ class ExecLibrary(LibImpl):
             )
             return 0
 
+    def Wait(self, ctx):
+        mask = ctx.cpu.r_reg(REG_D0) & 0xFFFFFFFF
+        pending = 0
+        # check all known ports for pending messages and synthesize signals
+        for port_addr in list(self.port_mgr.ports.keys()):
+            try:
+                mp = AccessStruct(self.mem, MsgPortStruct, port_addr)
+                sigbit = mp.r_s("mp_SigBit")
+                if sigbit >= 0 and self.port_mgr.has_msg(port_addr):
+                    pending |= 1 << sigbit
+            except Exception:
+                continue
+        res = pending & mask
+        log_exec.info("Wait(mask=0x%x) -> 0x%x", mask, res)
+        return res
+
     def CloseDevice(self, ctx):
         io_addr = ctx.cpu.r_reg(REG_A1)
         if io_addr != 0:
@@ -500,6 +557,10 @@ class ExecLibrary(LibImpl):
                 log_exec.info("CloseDevice: %06x", dev_addr)
                 self.lib_mgr.close_lib(dev_addr)
                 io.w_s("io_Device", 0)
+
+    # Class variable to track WaitPort state for consumer integration
+    _waitport_blocked_port = None  # Port address when blocked waiting for message
+    _waitport_blocked_sp = None    # Stack pointer when blocked (has return address)
 
     def WaitPort(self, ctx):
         port_addr = ctx.cpu.r_reg(REG_A0)
@@ -511,12 +572,22 @@ class ExecLibrary(LibImpl):
             )
         has_msg = self.port_mgr.has_msg(port_addr)
         if not has_msg:
+            # No message pending. Save state for consumer to restart from.
+            # The return address is on the stack (pushed by JSR before A-line trap).
+            sp = ctx.cpu.r_reg(REG_A7)
+            ExecLibrary._waitport_blocked_port = port_addr
+            ExecLibrary._waitport_blocked_sp = sp
+            # Raise exception to terminate the run
             raise UnsupportedFeatureError(
                 "WaitPort on empty message queue called: Port (%06x)" % port_addr
             )
-        msg_addr = self.port_mgr.get_msg(port_addr)
-        log_exec.info("WaitPort: got message %06x" % (msg_addr))
-        return msg_addr
+        # Clear blocked state since we have a message
+        ExecLibrary._waitport_blocked_port = None
+        ExecLibrary._waitport_blocked_sp = None
+        msg_addr = self.port_mgr.peek_msg(port_addr)
+        log_exec.info("WaitPort: pending message %06x" % (msg_addr))
+        # Return the port address (Exec returns the MsgPort ptr)
+        return port_addr
 
     def AddTail(self, ctx):
         list_addr = ctx.cpu.r_reg(REG_A0)
