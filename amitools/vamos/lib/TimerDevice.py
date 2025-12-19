@@ -12,9 +12,9 @@ class TimerDevice(LibImpl):
 
         dt = datetime.now()
 
-        # abuse DateStampStruct
+        # abuse DateStampStruct (ds_Days -> ev_hi, ds_Minute -> ev_lo)
         tv = AccessStruct(ctx.mem, DateStampStruct, struct_addr=eclockval)
-        tv.ds_Days = dt.microsecond / 1000000
-        tv.ds_Minute = dt.microsecond % 1000000
+        tv.w_s("ds_Days", dt.microsecond // 1000000)
+        tv.w_s("ds_Minute", dt.microsecond % 1000000)
 
         return 50
