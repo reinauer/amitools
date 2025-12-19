@@ -104,7 +104,8 @@ class SetupLibManager(object):
     def cur_task_callback(self, task):
         log_libmgr.info("current task: %s", task)
         if task:
-            proc = task.process
-            self.exec_ctx.set_process(proc)
-            self.exec_impl.set_this_task(proc)
-            self.dos_ctx.set_process(proc)
+            proc = getattr(task, 'process', None)
+            if proc is not None:
+                self.exec_ctx.set_process(proc)
+                self.exec_impl.set_this_task(proc)
+                self.dos_ctx.set_process(proc)
