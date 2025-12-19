@@ -380,7 +380,10 @@ class ExecLibrary(LibImpl):
         # label alloc
         pc = self.get_callee_pc(ctx)
         name = "AllocMem(%06x)" % pc
-        mb = self.alloc.alloc_memory(size, label=name)
+        mb = self.alloc.alloc_memory(size, label=name, except_on_failure=False)
+        if mb is None:
+            log_exec.info("AllocMem FAILED: %s size=%d flags=%08x", name, size, flags)
+            return 0
         log_exec.info("AllocMem: %s -> 0x%06x %d bytes" % (mb, mb.addr, size))
         return mb.addr
 
@@ -403,7 +406,10 @@ class ExecLibrary(LibImpl):
         size = ctx.cpu.r_reg(REG_D0)
         flags = ctx.cpu.r_reg(REG_D1)
         name = "AllocVec(@%06x)" % self.get_callee_pc(ctx)
-        mb = self.alloc.alloc_memory(size, label=name)
+        mb = self.alloc.alloc_memory(size, label=name, except_on_failure=False)
+        if mb is None:
+            log_exec.info("AllocVec FAILED: %s size=%d flags=%08x", name, size, flags)
+            return 0
         log_exec.info("AllocVec: %s, flags=%08x", name, flags)
         return mb.addr
 
