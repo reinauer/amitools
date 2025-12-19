@@ -24,6 +24,8 @@ from amitools.vamos.libstructs import (
     CLIStruct,
     DosPacketStruct,
     PathStruct,
+    DosListVolumeStruct,
+    DosListAssignStruct,
 )
 from amitools.vamos.error import *
 from amitools.vamos.log import log_dos
@@ -75,6 +77,7 @@ class DosLibrary(LibImpl):
         self.path = []
         self.resident = []
         self.local_vars = {}
+        self.dos_entries = {}
         self.access = AccessStruct(ctx.mem, self.get_struct_def(), base_addr)
         # setup RootNode
         self.root_struct = ctx.alloc.alloc_struct(RootNodeStruct, label="RootNode")
@@ -104,6 +107,64 @@ class DosLibrary(LibImpl):
         log_dos.info("Delay(%d)", ticks)
         if ticks > 0:
             time.sleep(ticks / 50.0)
+        return 0
+
+    def AttemptLockDosList(self, ctx):
+        flags = ctx.cpu.r_reg(REG_D1)
+        if not getattr(self, "_attempt_lock_warned", False):
+            log_dos.info("AttemptLockDosList(flags=0x%x) stub -> dummy success", flags)
+            self._attempt_lock_warned = True
+        dummy = 0x1000
+        # Return a non-zero dummy pointer (must be >1 for some callers)
+        return dummy
+
+    def MakeDosEntry(self, ctx):
+        name_bptr = ctx.cpu.r_reg(REG_D1)
+        entry_type = ctx.cpu.r_reg(REG_D2)
+        try:
+            name = ctx.mem.r_bstr(name_bptr) if name_bptr else ""
+        except Exception:
+            name = ""
+        if name is None or name == "":
+            name = f"vol_{entry_type:x}"
+        struct_def = (
+            DosListAssignStruct if entry_type == 1 else DosListVolumeStruct
+        )
+        mem = ctx.alloc.alloc_struct(struct_def, label=f"DosList({name})")
+        acc = mem.access
+        acc.w_s("dol_Next", 0)
+        acc.w_s("dol_Type", entry_type)
+        acc.w_s("dol_Task", 0)
+        acc.w_s("dol_Lock", 0)
+        if struct_def is DosListVolumeStruct:
+            acc.w_s("dol_LockList", 0)
+            acc.w_s("dol_DiskType", 0)
+        else:
+            acc.w_s("dol_List", 0)
+        name_mem = ctx.alloc.alloc_bstr("DosListName", name)
+        acc.w_s("dol_Name", name_mem.addr)
+        self.dos_entries[mem.addr] = {"mem": mem, "name": name_mem}
+        log_dos.info("MakeDosEntry('%s', type=%d) -> 0x%x", name, entry_type, mem.addr)
+        return mem.addr
+
+    def AddDosEntry(self, ctx):
+        dlist_ptr = ctx.cpu.r_reg(REG_D1)
+        ok = dlist_ptr != 0
+        log_dos.info("AddDosEntry(0x%x) -> %s", dlist_ptr, ok)
+        return self.DOSTRUE if ok else self.DOSFALSE
+
+    def RemDosEntry(self, ctx):
+        dlist_ptr = ctx.cpu.r_reg(REG_D1)
+        log_dos.info("RemDosEntry(0x%x)", dlist_ptr)
+        return self.DOSTRUE
+
+    def FreeDosEntry(self, ctx):
+        dlist_ptr = ctx.cpu.r_reg(REG_D1)
+        entry = self.dos_entries.pop(dlist_ptr, None)
+        if entry:
+            ctx.alloc.free_bstr(entry["name"])
+            ctx.alloc.free_struct(entry["mem"])
+        log_dos.info("FreeDosEntry(0x%x)", dlist_ptr)
         return 0
 
     def finish_lib(self, ctx):
