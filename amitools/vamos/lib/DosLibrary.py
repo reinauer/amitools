@@ -96,6 +96,16 @@ class DosLibrary(LibImpl):
             ctx.path_mgr, ctx.exec_lib.port_mgr, ctx.alloc, ctx.mem
         )
 
+    # --- Timing ---
+
+    def Delay(self, ctx):
+        # DOS Delay waits d1 ticks (1/50s = 20ms per tick)
+        ticks = ctx.cpu.r_reg(REG_D1)
+        log_dos.info("Delay(%d)", ticks)
+        if ticks > 0:
+            time.sleep(ticks / 50.0)
+        return 0
+
     def finish_lib(self, ctx):
         # finish file manager
         self.file_mgr.finish()
