@@ -495,6 +495,12 @@ class ExecLibrary(LibImpl):
         pc = self.get_callee_pc(ctx)
         name = "CreateIORequest(%06x)" % pc
         mb = self.alloc.alloc_memory(size, label=name)
+        ctx.mem.w_block(mb.addr, b"\x00" * size)
+        io = AccessStruct(ctx.mem, IORequestStruct, mb.addr)
+        io.w_s("io_Message.mn_ReplyPort", port)
+        io.w_s("io_Message.mn_Length", size)
+        io.w_s("io_Flags", 0)
+        io.w_s("io_Error", 0)
         log_exec.info(
             "CreateIORequest: (%s,%s,%s) -> 0x%06x %d bytes"
             % (mb, port, size, mb.addr, size)
@@ -531,6 +537,52 @@ class ExecLibrary(LibImpl):
                 "OpenDevice: '%s' unit %d flags %d -> %06x", name, unit, flags, addr
             )
             return 0
+
+    def _dispatch_begin_io(self, ctx, io_addr):
+        """Helper to call BeginIO on the target device and mark the request done."""
+        io = AccessStruct(ctx.mem, IORequestStruct, io_addr)
+        dev_addr = io.r_s("io_Device")
+        vlib = self.lib_mgr.get_vlib_by_addr(dev_addr)
+        if vlib is None:
+            log_exec.warning("DoIO: missing device for io=0x%06x dev=0x%06x", io_addr, dev_addr)
+            return -1
+        impl = vlib.get_impl()
+        # ensure regs point at the IORequest
+        ctx.cpu.w_reg(REG_A1, io_addr)
+        if hasattr(impl, "BeginIO"):
+            impl.BeginIO(ctx)
+            # flag completion
+            flags = io.r_s("io_Flags") | 1  # IOF_QUICK
+            io.w_s("io_Flags", flags)
+            io.w_s("io_Message.mn_Node.ln_Type", NodeType.NT_REPLYMSG)
+            return io.r_s("io_Error")
+        log_exec.warning("DoIO: device impl missing BeginIO for dev=0x%06x", dev_addr)
+        return -1
+
+    def DoIO(self, ctx):
+        io_addr = ctx.cpu.r_reg(REG_A1)
+        res = self._dispatch_begin_io(ctx, io_addr)
+        log_exec.info("DoIO(io=0x%06x) -> %d", io_addr, res)
+        return res
+
+    def SendIO(self, ctx):
+        io_addr = ctx.cpu.r_reg(REG_A1)
+        res = self._dispatch_begin_io(ctx, io_addr)
+        log_exec.info("SendIO(io=0x%06x) -> %d", io_addr, res)
+        return res
+
+    def CheckIO(self, ctx):
+        io_addr = ctx.cpu.r_reg(REG_A1)
+        io = AccessStruct(ctx.mem, IORequestStruct, io_addr)
+        # synchronous for now
+        log_exec.info("CheckIO(io=0x%06x)", io_addr)
+        return 1 if (io.r_s("io_Flags") & 1) else 0
+
+    def WaitIO(self, ctx):
+        io_addr = ctx.cpu.r_reg(REG_A1)
+        io = AccessStruct(ctx.mem, IORequestStruct, io_addr)
+        log_exec.info("WaitIO(io=0x%06x)", io_addr)
+        return io.r_s("io_Error")
 
     def Wait(self, ctx):
         mask = ctx.cpu.r_reg(REG_D0) & 0xFFFFFFFF
