@@ -54,6 +54,8 @@ class ExecLibrary(LibImpl):
         self.mem = ctx.mem
         # simple signal allocator bitmap
         self._signals = [False] * 32
+        # Pre-compute mp_SigBit offset for fast Wait() polling
+        self._mp_sigbit_offset = MsgPortStruct.sdef.find_field_def_by_name("mp_SigBit").offset
 
     def set_this_task(self, process):
         self.exec_lib.this_task.aptr = process.this_task.addr
@@ -596,14 +598,16 @@ class ExecLibrary(LibImpl):
         mask = ctx.cpu.r_reg(REG_D0) & 0xFFFFFFFF
         pending = 0
         # check all known ports for pending messages and synthesize signals
-        for port_addr in list(self.port_mgr.ports.keys()):
+        mem = self.mem
+        sigbit_offset = self._mp_sigbit_offset
+        ports = self.port_mgr.ports
+        for port_addr, port in ports.items():
             try:
-                mp = self._port_struct_cache.get(port_addr)
-                if mp is None:
-                    mp = AccessStruct(self.mem, MsgPortStruct, port_addr)
-                    self._port_struct_cache[port_addr] = mp
-                sigbit = mp.r_s("mp_SigBit")
-                if sigbit >= 0 and self.port_mgr.has_msg(port_addr):
+                # Direct memory read for mp_SigBit (UBYTE = width 0)
+                sigbit = mem.read(0, port_addr + sigbit_offset)
+                # Inline has_msg check
+                queue = port.queue
+                if sigbit >= 0 and queue is not None and len(queue) > 0:
                     pending |= 1 << sigbit
             except Exception:
                 continue

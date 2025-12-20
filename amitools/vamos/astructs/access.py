@@ -8,6 +8,7 @@ class AccessStruct(object):
     def __init__(self, mem, struct_def, struct_addr):
         self.mem = mem
         self.struct = struct_def(mem, struct_addr)
+        self._field_cache = {}
 
     def w_s(self, name, val):
         field, field_def = self._get_field_for_name(name)
@@ -34,6 +35,11 @@ class AccessStruct(object):
         return self.struct.get_byte_size()
 
     def _get_field_for_name(self, name):
+        # Check cache first
+        cached = self._field_cache.get(name)
+        if cached is not None:
+            return cached
+
         struct = self.struct
         field_def = None
         field = None
@@ -49,4 +55,6 @@ class AccessStruct(object):
                 struct = field
             else:
                 struct = None
+
+        self._field_cache[name] = (field, field_def)
         return field, field_def

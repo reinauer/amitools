@@ -119,10 +119,12 @@ class AmigaStructFieldDefs:
         self._field_defs.append(field_def)
         self._name_to_field_def[field_name] = field_def
         self._total_size += field_def.size
-        # find alias name
+        # find alias name and add to main dict for fast lookup
         alias_name = self._to_alias_name(field_def.name)
         if alias_name != field_name:
             self._alias_names[alias_name] = field_name
+            # Also add alias directly to main dict to avoid fallback lookup
+            self._name_to_field_def[alias_name] = field_def
 
     def get_type_name(self):
         return self._type_name
