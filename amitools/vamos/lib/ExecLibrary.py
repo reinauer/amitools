@@ -49,6 +49,7 @@ class ExecLibrary(LibImpl):
         self.exec_lib.max_loc_mem.val = ctx.ram_size
         # create the port manager
         self.port_mgr = PortManager(ctx.alloc)
+        self._port_struct_cache = {}  # Cache AccessStruct by port_addr for Wait()
         self.semaphore_mgr = SemaphoreManager(ctx.alloc, ctx.mem)
         self.mem = ctx.mem
         # simple signal allocator bitmap
@@ -491,6 +492,7 @@ class ExecLibrary(LibImpl):
     def DeleteMsgPort(self, ctx):
         port = ctx.cpu.r_reg(REG_A0)
         log_exec.info("DeleteMsgPort(%06x)" % port)
+        self._port_struct_cache.pop(port, None)  # Invalidate cache entry
         self.port_mgr.free_port(port)
         return 0
 
@@ -596,7 +598,10 @@ class ExecLibrary(LibImpl):
         # check all known ports for pending messages and synthesize signals
         for port_addr in list(self.port_mgr.ports.keys()):
             try:
-                mp = AccessStruct(self.mem, MsgPortStruct, port_addr)
+                mp = self._port_struct_cache.get(port_addr)
+                if mp is None:
+                    mp = AccessStruct(self.mem, MsgPortStruct, port_addr)
+                    self._port_struct_cache[port_addr] = mp
                 sigbit = mp.r_s("mp_SigBit")
                 if sigbit >= 0 and self.port_mgr.has_msg(port_addr):
                     pending |= 1 << sigbit

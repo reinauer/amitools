@@ -90,8 +90,20 @@ class ListBase:
 class MinList(MinListStruct, ListBase):
     def __init__(self, mem, addr, **kwargs):
         super().__init__(mem, addr, **kwargs)
-        self._head = MinNode(mem, self.addr)
-        self._tail = MinNode(mem, self.addr + 4)
+        self.__head = None
+        self.__tail = None
+
+    @property
+    def _head(self):
+        if self.__head is None:
+            self.__head = MinNode(self._mem, self.addr)
+        return self.__head
+
+    @property
+    def _tail(self):
+        if self.__tail is None:
+            self.__tail = MinNode(self._mem, self.addr + 4)
+        return self.__tail
 
     def __str__(self):
         return "[MinList:@%06x,h=%06x,t=%06x,tp=%06x]" % (
@@ -111,8 +123,20 @@ class MinList(MinListStruct, ListBase):
 class List(ListStruct, ListBase):
     def __init__(self, mem, addr, **kwargs):
         super().__init__(mem, addr, **kwargs)
-        self._head = Node(mem, self.addr)
-        self._tail = Node(mem, self.addr + 4)
+        self.__head = None
+        self.__tail = None
+
+    @property
+    def _head(self):
+        if self.__head is None:
+            self.__head = Node(self._mem, self.addr)
+        return self.__head
+
+    @property
+    def _tail(self):
+        if self.__tail is None:
+            self.__tail = Node(self._mem, self.addr + 4)
+        return self.__tail
 
     def __str__(self):
         return "[List:@%06x,h=%06x,t=%06x,tp=%06x,%s]" % (
