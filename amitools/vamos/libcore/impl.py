@@ -19,7 +19,7 @@ class LibImpl(object):
         return LibraryStruct
 
     def get_version(self):
-        return 40
+        return 47
 
     def setup_lib(self, ctx, base_addr):
         pass
