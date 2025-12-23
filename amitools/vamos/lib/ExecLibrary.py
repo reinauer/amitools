@@ -6,6 +6,7 @@ from amitools.vamos.libstructs import (
     ExecLibraryStruct,
     StackSwapStruct,
     IORequestStruct,
+    MessageStruct,
     MsgPortStruct,
     ListStruct,
     NodeStruct,
@@ -456,6 +457,25 @@ class ExecLibrary(LibImpl):
                 "PutMsg: on invalid Port (%06x) called!" % port_addr
             )
         self.port_mgr.put_msg(port_addr, msg_addr)
+
+    def ReplyMsg(self, ctx):
+        msg_addr = ctx.cpu.r_reg(REG_A1)
+        log_exec.info("ReplyMsg: msg=%06x" % (msg_addr))
+        if msg_addr == 0:
+            return 0
+        msg = AccessStruct(ctx.mem, MessageStruct, msg_addr)
+        reply_port = msg.r_s("mn_ReplyPort")
+        if ExecLibrary._debug_ports:
+            ports = self._format_port_states()
+            print(f"[Exec.ReplyMsg] msg=0x{msg_addr:x} reply=0x{reply_port:x} ports={ports}")
+        if reply_port == 0:
+            return 0
+        if not self.port_mgr.has_port(reply_port):
+            log_exec.warning("ReplyMsg: invalid reply port %06x", reply_port)
+            return 0
+        msg.w_s("mn_Node.ln_Type", NodeType.NT_REPLYMSG)
+        self.port_mgr.put_msg(reply_port, msg_addr)
+        return 0
 
     def GetMsg(self, ctx):
         port_addr = ctx.cpu.r_reg(REG_A0)
