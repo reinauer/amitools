@@ -14,6 +14,7 @@ from amitools.vamos.libstructs import (
     DateTimeStruct,
     LocalVarStruct,
     NodeStruct,
+    NodeType,
     SegmentStruct,
     FileHandleStruct,
     FileInfoBlockStruct,
@@ -23,6 +24,7 @@ from amitools.vamos.libstructs import (
     RDArgsStruct,
     CLIStruct,
     DosPacketStruct,
+    MessageStruct,
     PathStruct,
     DosListVolumeStruct,
     DosListAssignStruct,
@@ -215,6 +217,41 @@ class DosLibrary(LibImpl):
         self.setioerr(ctx, ctx.cpu.r_reg(REG_D1))
         log_dos.info("SetIoErr: IoErr=%d old IoErr=%d", self.io_err, old_io_err)
         return old_io_err
+
+    def ReplyPkt(self, ctx):
+        dp_addr = ctx.cpu.r_reg(REG_D1)
+        res1 = ctx.cpu.r_reg(REG_D2)
+        res2 = ctx.cpu.r_reg(REG_D3)
+        if dp_addr == 0:
+            return 0
+        pkt = AccessStruct(ctx.mem, DosPacketStruct, dp_addr)
+        pkt.w_s("dp_Res1", res1)
+        pkt.w_s("dp_Res2", res2)
+        msg_addr = pkt.r_s("dp_Link")
+        if msg_addr == 0:
+            return 0
+        reply_port = pkt.r_s("dp_Port")
+        if reply_port == 0:
+            return 0
+        # Update dp_Port to caller's port for subsequent packet exchanges.
+        caller_port = ctx.process.this_task.access.s_get_addr("pr_MsgPort")
+        pkt.w_s("dp_Port", caller_port)
+        # ReplyPkt ignores mn_ReplyPort and sends directly to dp_Port.
+        msg = AccessStruct(ctx.mem, MessageStruct, msg_addr)
+        msg.w_s("mn_Node.ln_Type", NodeType.NT_REPLYMSG)
+        msg.w_s("mn_Node.ln_Succ", 0)
+        msg.w_s("mn_Node.ln_Pred", 0)
+        try:
+            saved_a0 = ctx.cpu.r_reg(REG_A0)
+            saved_a1 = ctx.cpu.r_reg(REG_A1)
+            ctx.cpu.w_reg(REG_A0, reply_port)
+            ctx.cpu.w_reg(REG_A1, msg_addr)
+            ctx.exec_lib.PutMsg(ctx)
+            ctx.cpu.w_reg(REG_A0, saved_a0)
+            ctx.cpu.w_reg(REG_A1, saved_a1)
+        except Exception:
+            ctx.exec_lib.port_mgr.put_msg(reply_port, msg_addr)
+        return 0
 
     def Fault(self, ctx):
         errcode = ctx.cpu.r_reg(REG_D1)
