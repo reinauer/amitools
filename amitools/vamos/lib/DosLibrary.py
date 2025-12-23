@@ -86,7 +86,7 @@ class DosLibrary(LibImpl):
         self.access.w_s("dl_Root", self.root_struct.addr)
         # setup DosInfo
         self.dos_info = ctx.alloc.alloc_struct(DosInfoStruct, label="DosInfo")
-        self.root_struct.access.w_s("rn_Info", self.dos_info.addr)
+        self.root_struct.access.w_s("rn_Info", self.dos_info.addr >> 2)  # BPTR
         # setup dos list
         self.dos_list = DosList(
             self.path_mgr, self.path_mgr.assign_mgr, ctx.mem, ctx.alloc
