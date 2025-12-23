@@ -614,6 +614,21 @@ class ExecLibrary(LibImpl):
         log_exec.info("WaitIO(io=0x%06x)", io_addr)
         return io.r_s("io_Error")
 
+    # Class variable to track Wait state for amifuse integration
+    _wait_blocked_mask = None  # Signal mask when blocked waiting
+    _wait_blocked_sp = None    # Stack pointer when blocked (has return address)
+    _wait_blocked_ret = None   # Saved return address when blocked
+    def _block_run(self, ctx):
+        try:
+            run_state = ctx.machine.get_cur_run_state()
+            run_state.done = True
+        except Exception:
+            pass
+        try:
+            ctx.cpu.end()
+        except Exception:
+            pass
+
     def Wait(self, ctx):
         mask = ctx.cpu.r_reg(REG_D0) & 0xFFFFFFFF
         pending = 0
@@ -633,6 +648,29 @@ class ExecLibrary(LibImpl):
                 continue
         res = pending & mask
         log_exec.info("Wait(mask=0x%x) -> 0x%x", mask, res)
+        if res == 0:
+            # No signals pending that match the mask. Save state for amifuse.
+            # The return address is on the stack (pushed by JSR before A-line trap).
+            sp = ctx.cpu.r_reg(REG_A7)
+            ExecLibrary._wait_blocked_mask = mask
+            ExecLibrary._wait_blocked_sp = sp
+            try:
+                ret = ctx.mem.r32(sp)
+            except Exception:
+                ret = None
+            ExecLibrary._wait_blocked_ret = ret
+            if mask & 0x100:
+                log_exec.info(
+                    "Wait blocked: sp=%06x ret=%s",
+                    sp,
+                    "None" if ret is None else "%06x" % ret,
+                )
+            self._block_run(ctx)
+            return 0
+        # Clear blocked state since we have signals
+        ExecLibrary._wait_blocked_mask = None
+        ExecLibrary._wait_blocked_sp = None
+        ExecLibrary._wait_blocked_ret = None
         return res
 
     def CloseDevice(self, ctx):
@@ -648,6 +686,7 @@ class ExecLibrary(LibImpl):
     # Class variable to track WaitPort state for consumer integration
     _waitport_blocked_port = None  # Port address when blocked waiting for message
     _waitport_blocked_sp = None    # Stack pointer when blocked (has return address)
+    _waitport_blocked_ret = None   # Saved return address when blocked
 
     def WaitPort(self, ctx):
         port_addr = ctx.cpu.r_reg(REG_A0)
@@ -664,17 +703,20 @@ class ExecLibrary(LibImpl):
             sp = ctx.cpu.r_reg(REG_A7)
             ExecLibrary._waitport_blocked_port = port_addr
             ExecLibrary._waitport_blocked_sp = sp
-            # Raise exception to terminate the run
-            raise UnsupportedFeatureError(
-                "WaitPort on empty message queue called: Port (%06x)" % port_addr
-            )
+            try:
+                ret = ctx.mem.r32(sp)
+            except Exception:
+                ret = None
+            ExecLibrary._waitport_blocked_ret = ret
+            self._block_run(ctx)
+            return port_addr
         # Clear blocked state since we have a message
         ExecLibrary._waitport_blocked_port = None
         ExecLibrary._waitport_blocked_sp = None
+        ExecLibrary._waitport_blocked_ret = None
         msg_addr = self.port_mgr.peek_msg(port_addr)
         log_exec.info("WaitPort: pending message %06x" % (msg_addr))
-        # Return the port address (Exec returns the MsgPort ptr)
-        return port_addr
+        return msg_addr
 
     def AddTail(self, ctx):
         list_addr = ctx.cpu.r_reg(REG_A0)
