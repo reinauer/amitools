@@ -1,4 +1,9 @@
-from amitools.vamos.libstructs.dos import CLIStruct, DosPacketStruct, ProcessStruct
+from amitools.vamos.libstructs.dos import (
+    CLIStruct,
+    DosPacketStruct,
+    ProcessStruct,
+    PathStruct,
+)
 from amitools.vamos.libstructs.exec_ import MessageStruct, MinListStruct
 from amitools.vamos.log import log_proc
 from amitools.vamos.machine.regs import (
@@ -36,6 +41,7 @@ class Process(DosProcess):
         self.bin_file = bin_file
         self.arg_str = arg_str
         self.shell = shell
+        self.cli_paths = []
 
         if input_fh is None:
             input_fh = self.ctx.dos_lib.file_mgr.get_input()
@@ -55,6 +61,7 @@ class Process(DosProcess):
         else:
             self.arg = None
             self.arg_base = 0
+            self.init_shell_packet()
 
         # create the DosProcess
         super().__init__(
@@ -67,25 +74,15 @@ class Process(DosProcess):
             return_regs=[REG_D0],
         )
 
-        # thor: the boot shell creates its own CLI if it is not there.
-        # but for now, supply it with the Vamos CLI and let it initialize
-        # it through the private CliInit() call of the dos.library
-        if not shell:
-            self.init_cli_struct(input_fh, output_fh, self.bin_basename)
-        else:
-            self.init_cli_struct(None, None, None)
-        self.shell_message = None
-        self.shell_packet = None
-        self.shell_port = None
-
+        self.alloc_cli_struct()
         self.init_task_struct(input_fh, output_fh)
-        self.set_cwd()
+        self.init_cli_struct(input_fh, output_fh, self.bin_basename)
 
     def free(self):
-        if not self.shell:
-            self.free_cwd()
+        self.free_cwd()
+        if self.shell:
+            self.free_shell_packet()
         self.free_task_struct()
-        self.free_shell_packet()
         self.free_cli_struct()
         self.free_args()
         self.unload_binary()
@@ -113,6 +110,7 @@ class Process(DosProcess):
 
     def set_cwd(self):
         if self.cwd_lock is not None:
+            log_proc.info("current dir: lock=%s", self.cwd_lock)
             self.set_current_dir(self.cwd_lock.b_addr << 2)
 
     def free_cwd(self):
@@ -190,7 +188,8 @@ class Process(DosProcess):
             # BPCL places the BPTR to the parameter packet into
             # d1. The default shell can work without ParmPkt
             # thus leave this at zero for this time.
-            regs[REG_D1] = 0
+            regs[REG_D1] = self.shell_packet.addr >> 2
+            log_proc.info("shell startup packet: BPTR %08x", regs[REG_D1])
         else:
             regs[REG_D0] = self.arg_len
             regs[REG_A0] = self.arg_base
@@ -204,17 +203,30 @@ class Process(DosProcess):
         return regs
 
     # ----- cli struct -----
-    def init_cli_struct(self, input_fh, output_fh, name):
+    def alloc_cli_struct(self):
         self.cli = self.ctx.alloc.alloc_struct(
             CLIStruct, label=self.bin_basename + "_CLI"
         )
+
+    def init_cli_struct(self, input_fh, output_fh, bin_name):
         self.cli.access.w_s("cli_DefaultStack", self.stack.get_size() // 4)  # in longs
-        if input_fh != None:
-            self.cli.access.w_s("cli_StandardInput", input_fh.b_addr << 2)
-            self.cli.access.w_s("cli_CurrentInput", input_fh.b_addr << 2)
-        if output_fh != None:
-            self.cli.access.w_s("cli_StandardOutput", output_fh.b_addr << 2)
-            self.cli.access.w_s("cli_CurrentOutput", output_fh.b_addr << 2)
+        self.cli.access.w_s("cli_FailLevel", 10)
+        # set input/output
+        self.cli.access.w_s("cli_StandardInput", input_fh.b_addr << 2)
+        self.cli.access.w_s("cli_CurrentInput", input_fh.b_addr << 2)
+        self.cli.access.w_s("cli_StandardOutput", output_fh.b_addr << 2)
+        self.cli.access.w_s("cli_CurrentOutput", output_fh.b_addr << 2)
+        # shell uses startup file
+        if self.shell:
+            startup_file = "S:Vamos-Startup"
+            file_mgr = self.ctx.dos_lib.file_mgr
+            fh = file_mgr.open(self.cwd_lock, startup_file, "rb+")
+            if fh != None:
+                log_proc.info("using startup file: %s", startup_file)
+                self.clip.access.w_s("cli_CurrentInput", fh.mem.addr)
+            else:
+                log_proc.info("startup file not found: %s", startup_file)
+        # alloc prompt/cmdname/cmdfile/setname
         self.prompt = self.ctx.alloc.alloc_memory(60, label="cli_Prompt")
         self.cmdname = self.ctx.alloc.alloc_memory(104, label="cli_CommandName")
         self.cmdfile = self.ctx.alloc.alloc_memory(40, label="cli_CommandFile")
@@ -223,9 +235,25 @@ class Process(DosProcess):
         self.cli.access.w_s("cli_CommandName", self.cmdname.addr)
         self.cli.access.w_s("cli_CommandFile", self.cmdfile.addr)
         self.cli.access.w_s("cli_SetName", self.setname.addr)
-        if name != None:
-            self.ctx.mem.w_bstr(self.cmdname.addr, name)
+        # set default prompt
+        self.ctx.mem.w_bstr(self.prompt.addr, "%N.%S> ")
+        self.ctx.mem.w_bstr(self.setname.addr, "SYS:")
+        self.ctx.mem.w_bstr(self.cmdname.addr, bin_name)
         log_proc.info(self.cli)
+        # Create the path
+        cmd_dir_addr = self.cli.access.r_s("cli_CommandDir")
+        for p in self.ctx.path_mgr.get_cmd_paths():
+            if p != "C:" and p != "c:":
+                lock = self.ctx.dos_lib.lock_mgr.create_lock(None, p, False)
+                if lock != None:
+                    path = self.ctx.alloc.alloc_struct(PathStruct, label="Path(%s)" % p)
+                    path.access.w_s("path_Lock", lock.mem.addr)
+                    path.access.w_s("path_Next", cmd_dir_addr)
+                    cmd_dir_addr = path.addr
+                    self.cli.access.w_s("cli_CommandDir", cmd_dir_addr)
+                    self.cli_paths.append((path, lock))
+                else:
+                    log_proc.warning("Path %s does not exist, expect problems!", p)
 
     def free_cli_struct(self):
         self.ctx.alloc.free_memory(self.prompt)
@@ -233,11 +261,38 @@ class Process(DosProcess):
         self.ctx.alloc.free_memory(self.setname)
         self.ctx.alloc.free_memory(self.cmdfile)
         self.ctx.alloc.free_struct(self.cli)
+        # free path
+        for path, lock in self.cli_paths:
+            self.ctx.alloc.free_struct(path)
+            self.ctx.dos_lib.lock_mgr.release_lock(lock)
 
     def get_cli_struct(self):
         return self.cli.addr
 
     # ----- initialize for running a command in a shell -----
+
+    def init_shell_packet(self):
+        self.shell_message = self.ctx.alloc.alloc_struct(
+            MessageStruct, label="Shell Startup Message"
+        )
+        self.shell_packet = self.ctx.alloc.alloc_struct(
+            DosPacketStruct, label="Shell Startup Packet"
+        )
+        self.shell_port = self.ctx.exec_lib.port_mgr.create_port(
+            "Shell Startup Port", None
+        )
+        self.shell_packet.access.w_s("dp_Type", 1)  # indicate RUN
+        self.shell_packet.access.w_s("dp_Res2", 0)  # indicate correct startup
+        self.shell_packet.access.w_s("dp_Res1", 0)  # indicate RUN
+        self.shell_packet.access.w_s("dp_Link", self.shell_message.addr)
+        self.shell_packet.access.w_s("dp_Port", self.shell_port)
+        self.shell_message.access.w_s("mn_Node.ln_Name", self.shell_packet.addr)
+        log_proc.info(
+            "shell_packet: dp=%08x msg=%08x port=%08x",
+            self.shell_packet.addr,
+            self.shell_message.addr,
+            self.shell_port,
+        )
 
     def free_shell_packet(self):
         if self.shell_message != None:
@@ -251,23 +306,6 @@ class Process(DosProcess):
             self.shell_port = None
 
     def run_system(self):
-        if self.shell_packet == None:
-            # Ok, here we have to create a DosPacket for the shell startup
-            self.shell_message = self.ctx.alloc.alloc_struct(
-                MessageStruct, label="Shell Startup Message"
-            )
-            self.shell_packet = self.ctx.alloc.alloc_struct(
-                DosPacketStruct, label="Shell Startup Packet"
-            )
-            self.shell_port = self.ctx.exec_lib.port_mgr.create_port(
-                "Shell Startup Port", None
-            )
-        self.shell_packet.access.w_s("dp_Type", 1)  # indicate RUN
-        self.shell_packet.access.w_s("dp_Res2", 0)  # indicate correct startup
-        self.shell_packet.access.w_s("dp_Res1", 0)  # indicate RUN
-        self.shell_packet.access.w_s("dp_Link", self.shell_message.addr)
-        self.shell_packet.access.w_s("dp_Port", self.shell_port)
-        self.shell_message.access.w_s("mn_Node.ln_Name", self.shell_packet.addr)
         while self.ctx.exec_lib.port_mgr.has_msg(self.shell_port):
             self.ctx.exec_lib.port_mgr.get_msg(self.shell_port)
         return self.shell_packet.addr

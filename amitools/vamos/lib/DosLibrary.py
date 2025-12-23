@@ -23,9 +23,8 @@ from amitools.vamos.libstructs import (
     RDArgsStruct,
     CLIStruct,
     DosPacketStruct,
-    PathStruct,
 )
-from amitools.vamos.libtypes import TagList, DosTag
+from amitools.vamos.libtypes import TagList, DosTag, DosPacket
 from amitools.vamos.error import *
 from amitools.vamos.log import log_dos
 from .dos.Args import *
@@ -69,7 +68,6 @@ class DosLibrary(LibImpl):
         self.rdargs = {}
         self.dos_objs = {}
         self.errstrings = {}
-        self.path = []
         self.resident = []
         self.local_vars = {}
         self.access = AccessStruct(ctx.mem, self.get_struct_def(), base_addr)
@@ -98,10 +96,6 @@ class DosLibrary(LibImpl):
         self.file_mgr.finish()
         # free dos list
         self.dos_list.free_list()
-        # free path
-        for path, lock in self.path:
-            ctx.alloc.free_struct(path)
-            self.lock_mgr.release_lock(lock)
         # free resident nodes
         for res in self.resident:
             self._free_mem(res)
@@ -418,8 +412,8 @@ class DosLibrary(LibImpl):
             log_dos.info('FindVar("%s", 0x%x) -> NULL', name, vtype)
             return 0
         else:
-            log_dos.info('FindVar("%s", 0x%x) -> %06lx', name, vtype, node.struct_addr)
-            return node.struct_addr
+            log_dos.info('FindVar("%s", 0x%x) -> %06lx', name, vtype, node.struct.addr)
+            return node.struct.addr
 
     def SetVar(self, ctx):
         name_ptr = ctx.cpu.r_reg(REG_D1)
@@ -525,6 +519,11 @@ class DosLibrary(LibImpl):
         log_dos.info("Cli() -> %06x", cli_addr)
         return cli_addr
 
+    def ExtendedCli(self, ctx):
+        # is ignored for now
+        log_dos.info("ExtendedCli() -> 0")
+        return 0
+
     def Input(self, ctx):
         inp_bptr = ctx.process.this_task.access.r_s("pr_CIS") >> 2
         log_dos.info("Input() -> b%06x", inp_bptr)
@@ -558,6 +557,10 @@ class DosLibrary(LibImpl):
             cooked = True
         elif mode == 1 or mode == -1:
             cooked = False
+        elif mode == 2:
+            # ignore medium for now
+            log_dos.info("SetMode() ignore medium mode.")
+            return DOSFALSE
         else:
             log_dos.warning("SetMode() mode=%d not supported!", mode)
             self.setioerr(ctx, ERROR_ACTION_NOT_KNOWN)
@@ -1892,60 +1895,36 @@ class DosLibrary(LibImpl):
 
     # ----- Cli support ---
 
-    def CliInit(self, ctx):
-        log_dos.info("CliInit")
-        clip_addr = self.Cli(ctx)
-        clip = AccessStruct(ctx.mem, CLIStruct, clip_addr)
-        clip.w_s("cli_FailLevel", 10)
-        clip.w_s(
-            "cli_DefaultStack", ctx.process.get_stack().get_size() >> 2
-        )  # in longs
-        # Typically, the creator of the CLI would also initialize
-        # the prompt and command name arguments. Unfortunately,
-        # vamos does not necessarily do that, so cover this here.
-        prompt_ptr = clip.r_s("cli_Prompt")
-        ctx.mem.w_bstr(prompt_ptr, "%N.%S> ")
-        # Get the current dir and install it.
-        setname = clip.r_s("cli_SetName")
-        ctx.mem.w_bstr(setname, "SYS:")
-        # The native CliInit opens the CON window here. Don't do that
-        # instead use Input and Output.
-        # cli_CurrentInput would also be set to the input handle of
-        # the S:Startup-Sequence
-        infh = self.Input(ctx) << 2
-        outfh = self.Output(ctx) << 2
-        clip.w_s("cli_StandardInput", infh)
-        clip.w_s("cli_CurrentInput", infh)
-        clip.w_s("cli_StandardOutput", outfh)
-        clip.w_s("cli_CurrentOutput", outfh)
-        fh = self.file_mgr.open(self.get_current_dir(ctx), "S:Vamos-Startup", "rb+")
-        if fh != None:
-            clip.w_s("cli_CurrentInput", fh.mem.addr)
-        #
-        # Create the path
-        cmd_dir_addr = clip.r_s("cli_CommandDir")
-        for p in ctx.path_mgr.get_cmd_paths():
-            if p != "C:" and p != "c:":
-                lock = self.lock_mgr.create_lock(None, p, False)
-                if lock != None:
-                    path = ctx.alloc.alloc_struct(PathStruct, label="Path(%s)" % p)
-                    path.access.w_s("path_Lock", lock.mem.addr)
-                    path.access.w_s("path_Next", cmd_dir_addr)
-                    cmd_dir_addr = path.addr
-                    clip.w_s("cli_CommandDir", cmd_dir_addr)
-                    self.path.append((path, lock))
-                else:
-                    log_dos.warning("Path %s does not exist, expect problems!", p)
+    def CliInit(self, ctx, dp: DosPacket):
+        # Init style shells are not needed anymore
+        log_dos.error("CliInit: not supported/needed!")
         return 0
 
-    def CliInitRun(self, ctx):
-        clip_addr = self.Cli(ctx)
-        clip = AccessStruct(ctx.mem, CLIStruct, struct_addr=clip_addr)
-        pkt = ctx.cpu.r_reg(REG_A0)
-        log_dos.info("CliInitRun (0x%06x)", pkt)
-        # This would typically initialize the CLI for running a command
-        # from the packet. Anyhow, this is already done, so do nothing here
-        return 0x80000004  # valid, and a System() call.
+    def CliInitNewcli(self, ctx, dp: DosPacket):
+        # NewCLI style shells are not supported
+        log_dos.error("CliInitNewcli: not supported/needed!")
+        return 0
+
+    def CliInitRun(self, ctx, dp: DosPacket):
+        # check dos packet
+        type = dp.type.val
+        res1 = dp.res1.val
+        res2 = dp.res2.val
+        log_dos.info(
+            "CliInitRun pkt@%08x type=%d res1=%d res2=%d", dp.addr, type, res1, res2
+        )
+        # run style
+        if type != 0 and res1 == 0 and res2 == 0:
+            # setup CLI with legacy CliInit
+            return 0x80000008  # valid, and a async Run call.
+        else:
+            log_dos.warning(
+                "CliInitRun: unsupported mode: type=%d res1=%d res2=%d",
+                type,
+                res1,
+                res2,
+            )
+            return 0
 
     # ----- DosList -------------
 
@@ -2032,6 +2011,15 @@ class DosLibrary(LibImpl):
     def SetFileSysTask(self, ctx):
         port = ctx.cpu.r_reg(REG_D1)
         ctx.process.this_task.access.w_s("pr_FileSystemTask", port)
+
+    # ----- DosPackets -----
+
+    def ReplyPkt(self, ctx, dp: DosPacket, res1, res2):
+        log_dos.info("ReplyPkt(%s, %d, %d)", dp, res1, res2)
+        dp.res1.val = res1
+        dp.res2.val = res2
+        log_dos.debug("ReplyPkt: port=%08x  msg=%08x", dp.port.aptr, dp.link.aptr)
+        ctx.proxies.get_exec_lib_proxy().PutMsg(dp.port.aptr, dp.link.aptr)
 
     # ----- Helpers -----
 

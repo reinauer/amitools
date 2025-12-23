@@ -722,3 +722,8 @@ class ExecLibrary(LibImpl):
         num_bytes = ctx.cpu.r_reg(REG_D0)
         Alloc.deallocate(ctx, mh_addr, blk_addr, num_bytes)
         log_exec.info("Deallocate(%06x, %06x, %06x)" % (mh_addr, blk_addr, num_bytes))
+
+    # ----- Misc -----
+
+    def Alert(self, ctx, code):
+        log_exec.error("ALERT: code=%08x", code)
