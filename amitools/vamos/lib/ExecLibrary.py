@@ -449,7 +449,7 @@ class ExecLibrary(LibImpl):
         msg_addr = ctx.cpu.r_reg(REG_A1)
         log_exec.info("PutMsg: port=%06x msg=%06x" % (port_addr, msg_addr))
         if port_addr == 0:
-            print(f"[PutMsg] ignoring null port for msg=0x{msg_addr:x}")
+            log_exec.warning("PutMsg: ignoring null port for msg=0x%06x", msg_addr)
             return
         has_port = self.port_mgr.has_port(port_addr)
         if not has_port:
@@ -599,6 +599,19 @@ class ExecLibrary(LibImpl):
         io_addr = ctx.cpu.r_reg(REG_A1)
         res = self._dispatch_begin_io(ctx, io_addr)
         log_exec.info("SendIO(io=0x%06x) -> %d", io_addr, res)
+        # SendIO is asynchronous - the caller expects a reply message when IO completes.
+        # Since we complete synchronously in _dispatch_begin_io, we simulate async
+        # completion by sending the IORequest as a reply message to the reply port.
+        # This allows handlers like FFS that use SendIO + WaitCo to receive the
+        # completion notification.
+        io = AccessStruct(ctx.mem, IORequestStruct, io_addr)
+        reply_port = io.r_s("io_Message.mn_ReplyPort")
+        has_port = reply_port != 0 and self.port_mgr.has_port(reply_port)
+        if has_port:
+            self.port_mgr.put_msg(reply_port, io_addr)
+            log_exec.info("SendIO: queued reply to port 0x%06x", reply_port)
+        else:
+            log_exec.warning("SendIO: reply_port=0x%06x not registered (has=%s)", reply_port, has_port)
         return res
 
     def CheckIO(self, ctx):
