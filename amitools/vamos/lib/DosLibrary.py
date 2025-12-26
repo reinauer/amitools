@@ -218,6 +218,52 @@ class DosLibrary(LibImpl):
         log_dos.info("SetIoErr: IoErr=%d old IoErr=%d", self.io_err, old_io_err)
         return old_io_err
 
+    # Class variable to track WaitPkt state (vs regular WaitPort)
+    _waitpkt_blocked = False
+
+    def WaitPkt(self, ctx):
+        """Wait for a DosPacket on the process's pr_MsgPort and return it."""
+        from amitools.vamos.lib.ExecLibrary import ExecLibrary
+        # Get current process from ExecLibrary's exec_lib.this_task
+        proc_addr = ctx.exec_lib.exec_lib.this_task.aptr
+        if proc_addr == 0:
+            log_dos.warning("WaitPkt: ThisTask is NULL")
+            return 0
+        # pr_MsgPort is at offset 0x5c (92) in Process struct - it's embedded, not a pointer
+        port_addr = proc_addr + 0x5c
+        log_dos.info("WaitPkt: proc=%06x port=%06x" % (proc_addr, port_addr))
+        # Check if port is registered
+        if not ctx.exec_lib.port_mgr.has_port(port_addr):
+            log_dos.warning("WaitPkt: port %06x not registered" % port_addr)
+            return 0
+        # Check if there's a message
+        if not ctx.exec_lib.port_mgr.has_msg(port_addr):
+            # No message - block like WaitPort does
+            sp = ctx.cpu.r_reg(REG_A7)
+            ExecLibrary._waitport_blocked_port = port_addr
+            ExecLibrary._waitport_blocked_sp = sp
+            try:
+                ret = ctx.mem.r32(sp)
+            except Exception:
+                ret = None
+            ExecLibrary._waitport_blocked_ret = ret
+            DosLibrary._waitpkt_blocked = True  # Mark as WaitPkt block
+            ctx.exec_lib._block_run(ctx)
+            return 0  # Will be resumed with proper D0
+        # Have message - get it
+        ExecLibrary._waitport_blocked_port = None
+        ExecLibrary._waitport_blocked_sp = None
+        ExecLibrary._waitport_blocked_ret = None
+        DosLibrary._waitpkt_blocked = False
+        msg_addr = ctx.exec_lib.port_mgr.get_msg(port_addr)
+        if msg_addr == 0:
+            return 0
+        # DosPacket is at mn_Node.ln_Name (standard AmigaDOS convention)
+        msg = AccessStruct(ctx.mem, MessageStruct, msg_addr)
+        pkt_addr = msg.r_s("mn_Node.ln_Name")
+        log_dos.info("WaitPkt: got message %06x, packet %06x" % (msg_addr, pkt_addr))
+        return pkt_addr
+
     def ReplyPkt(self, ctx):
         dp_addr = ctx.cpu.r_reg(REG_D1)
         res1 = ctx.cpu.r_reg(REG_D2)
@@ -234,8 +280,11 @@ class DosLibrary(LibImpl):
         if reply_port == 0:
             return 0
         # Update dp_Port to caller's port for subsequent packet exchanges.
-        caller_port = ctx.process.this_task.access.s_get_addr("pr_MsgPort")
-        pkt.w_s("dp_Port", caller_port)
+        # Get current process from ExecLibrary's exec_lib.this_task
+        proc_addr = ctx.exec_lib.exec_lib.this_task.aptr
+        if proc_addr != 0:
+            caller_port = proc_addr + 0x5c  # pr_MsgPort offset
+            pkt.w_s("dp_Port", caller_port)
         # ReplyPkt ignores mn_ReplyPort and sends directly to dp_Port.
         msg = AccessStruct(ctx.mem, MessageStruct, msg_addr)
         msg.w_s("mn_Node.ln_Type", NodeType.NT_REPLYMSG)
