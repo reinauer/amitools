@@ -1,9 +1,14 @@
 import time
 from amitools.vamos.libcore import LibImpl
-from amitools.vamos.machine.regs import REG_A0
-from amitools.vamos.astructs import LONG
+from amitools.vamos.machine.regs import REG_A0, REG_A1
+from amitools.vamos.astructs import AccessStruct, LONG
 from amitools.vamos.libtypes import TimeVal
+from amitools.vamos.libstructs import IORequestStruct
 from amitools.vamos.log import log_timer
+
+# Timer commands
+TR_ADDREQUEST = 9
+TR_GETSYSTIME = 11
 
 
 class TimerDevice(LibImpl):
@@ -36,6 +41,39 @@ class TimerDevice(LibImpl):
         eclk_lo = eclk & 0xFFFFFFFF
         eclk_hi = eclk >> 32
         return eclk_lo, eclk_hi
+
+    def BeginIO(self, ctx):
+        """Handle timer IO requests."""
+        io_addr = ctx.cpu.r_reg(REG_A1)
+        io = AccessStruct(ctx.mem, IORequestStruct, io_addr)
+        cmd = io.r_s("io_Command")
+
+        # Clear error
+        io.w_s("io_Error", 0)
+
+        if cmd == TR_ADDREQUEST:
+            # Timer request - read timeval from io_Data area
+            # The timeval is at offset 32 in the timerequest structure
+            # tv_secs at +32, tv_micro at +36
+            tv_secs = ctx.mem.r32(io_addr + 32)
+            tv_micro = ctx.mem.r32(io_addr + 36)
+            delay_secs = tv_secs + tv_micro / 1000000.0
+            log_timer.info(
+                "BeginIO: TR_ADDREQUEST secs=%d micro=%d", tv_secs, tv_micro
+            )
+            # Cap at 1 second max to avoid long hangs, but still provide real delay
+            if delay_secs > 0:
+                time.sleep(min(delay_secs, 1.0))
+        elif cmd == TR_GETSYSTIME:
+            # Return current time
+            secs, micros = self.get_sys_time()
+            log_timer.info("BeginIO: TR_GETSYSTIME -> secs=%d micro=%d", secs, micros)
+            ctx.mem.w32(io_addr + 32, secs)
+            ctx.mem.w32(io_addr + 36, micros)
+        else:
+            log_timer.info("BeginIO: unknown command %d", cmd)
+        # Other commands just succeed
+        return 0
 
     def ReadEClock(self, ctx, tv: TimeVal):
         lo, hi = self.get_eclock_lo_hi()
