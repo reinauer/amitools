@@ -3,7 +3,6 @@ import os.path
 import os
 import logging
 import errno
-import stat
 
 from amitools.vamos.log import log_file
 from amitools.vamos.error import UnsupportedFeatureError
@@ -222,14 +221,7 @@ class FileManager:
             log_file.info("file to set proteciton not found: '%s'", ami_path)
             return ERROR_OBJECT_NOT_FOUND
         prot = DosProtection(mask)
-        posix_mask = 0
-        if prot.is_e():
-            posix_mask |= stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
-        if prot.is_w():
-            posix_mask |= stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
-        if prot.is_r():
-            posix_mask |= stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
-        posix_mask &= ~self.umask
+        posix_mask = prot.to_host_mode() & ~self.umask
         log_file.info(
             "set protection: '%s': %s -> '%s': posix_mask=%03o umask=%03o",
             ami_path,
