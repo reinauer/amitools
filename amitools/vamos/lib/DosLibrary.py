@@ -14,6 +14,8 @@ from amitools.vamos.libstructs import (
     DateTimeStruct,
     LocalVarStruct,
     NodeStruct,
+    NodeType,
+    MessageStruct,
     SegmentStruct,
     FileHandleStruct,
     FileInfoBlockStruct,
@@ -154,6 +156,79 @@ class DosLibrary(LibImpl):
         self.setioerr(ctx, ctx.cpu.r_reg(REG_D1))
         log_dos.info("SetIoErr: IoErr=%d old IoErr=%d", self.io_err, old_io_err)
         return old_io_err
+
+    def WaitPkt(self, ctx):
+        """Wait for a DosPacket on the process's pr_MsgPort and return it."""
+        # Get current process from ExecLibrary's exec_lib.this_task
+        proc_addr = ctx.exec_lib.exec_lib.this_task.aptr
+        if proc_addr == 0:
+            log_dos.warning("WaitPkt: ThisTask is NULL")
+            return 0
+        # pr_MsgPort is at offset 0x5c (92) in Process struct - embedded
+        port_addr = proc_addr + 0x5c
+        log_dos.info("WaitPkt: proc=%06x port=%06x" % (proc_addr, port_addr))
+        # Check if port is registered
+        if not ctx.exec_lib.port_mgr.has_port(port_addr):
+            log_dos.warning("WaitPkt: port %06x not registered" % port_addr)
+            return 0
+        # Check if there's a message
+        if not ctx.exec_lib.port_mgr.has_msg(port_addr):
+            # No message - raise exception like WaitPort does
+            raise UnsupportedFeatureError(
+                "WaitPkt on empty message queue called: Port (%06x)" % port_addr
+            )
+        # Have message - get it
+        msg_addr = ctx.exec_lib.port_mgr.get_msg(port_addr)
+        if msg_addr == 0:
+            return 0
+        # DosPacket is at mn_Node.ln_Name (standard AmigaDOS convention)
+        msg = AccessStruct(ctx.mem, MessageStruct, msg_addr)
+        pkt_addr = msg.r_s("mn_Node.ln_Name")
+        log_dos.info(
+            "WaitPkt: got message %06x, packet %06x" % (msg_addr, pkt_addr)
+        )
+        return pkt_addr
+
+    def ReplyPkt(self, ctx):
+        dp_addr = ctx.cpu.r_reg(REG_D1)
+        res1 = ctx.cpu.r_reg(REG_D2)
+        res2 = ctx.cpu.r_reg(REG_D3)
+        if dp_addr == 0:
+            return 0
+        pkt = AccessStruct(ctx.mem, DosPacketStruct, dp_addr)
+        pkt.w_s("dp_Res1", res1)
+        pkt.w_s("dp_Res2", res2)
+        msg_addr = pkt.r_s("dp_Link")
+        if msg_addr == 0:
+            return 0
+        reply_port = pkt.r_s("dp_Port")
+        if reply_port == 0:
+            return 0
+        # Update dp_Port to caller's port for subsequent packet exchanges.
+        proc_addr = ctx.exec_lib.exec_lib.this_task.aptr
+        if proc_addr != 0:
+            caller_port = proc_addr + 0x5c  # pr_MsgPort offset
+            pkt.w_s("dp_Port", caller_port)
+        # ReplyPkt ignores mn_ReplyPort and sends directly to dp_Port.
+        msg = AccessStruct(ctx.mem, MessageStruct, msg_addr)
+        msg.w_s("mn_Node.ln_Type", NodeType.NT_REPLYMSG)
+        msg.w_s("mn_Node.ln_Succ", 0)
+        msg.w_s("mn_Node.ln_Pred", 0)
+        try:
+            saved_a0 = ctx.cpu.r_reg(REG_A0)
+            saved_a1 = ctx.cpu.r_reg(REG_A1)
+            ctx.cpu.w_reg(REG_A0, reply_port)
+            ctx.cpu.w_reg(REG_A1, msg_addr)
+            ctx.exec_lib.PutMsg(ctx)
+            ctx.cpu.w_reg(REG_A0, saved_a0)
+            ctx.cpu.w_reg(REG_A1, saved_a1)
+        except Exception:
+            ctx.exec_lib.port_mgr.put_msg(reply_port, msg_addr)
+        log_dos.info(
+            "ReplyPkt: pkt=%06x res1=%d res2=%d -> port=%06x"
+            % (dp_addr, res1, res2, reply_port)
+        )
+        return 0
 
     def Fault(self, ctx):
         errcode = ctx.cpu.r_reg(REG_D1)
