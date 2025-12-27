@@ -157,8 +157,12 @@ class DosLibrary(LibImpl):
         log_dos.info("SetIoErr: IoErr=%d old IoErr=%d", self.io_err, old_io_err)
         return old_io_err
 
+    # Class variable for tracking blocked WaitPkt state (used by amifuse)
+    _waitpkt_blocked = False
+
     def WaitPkt(self, ctx):
         """Wait for a DosPacket on the process's pr_MsgPort and return it."""
+        from amitools.vamos.lib.ExecLibrary import ExecLibrary
         # Get current process from ExecLibrary's exec_lib.this_task
         proc_addr = ctx.exec_lib.exec_lib.this_task.aptr
         if proc_addr == 0:
@@ -173,7 +177,12 @@ class DosLibrary(LibImpl):
             return 0
         # Check if there's a message
         if not ctx.exec_lib.port_mgr.has_msg(port_addr):
-            # No message - raise exception like WaitPort does
+            # Set blocking state before raising exception (for amifuse resume support)
+            sp = ctx.cpu.r_reg(REG_A7)
+            ExecLibrary._waitport_blocked_sp = sp
+            ExecLibrary._waitport_blocked_port = port_addr
+            ExecLibrary._waitport_blocked_ret = ctx.mem.r32(sp)
+            DosLibrary._waitpkt_blocked = True
             raise UnsupportedFeatureError(
                 "WaitPkt on empty message queue called: Port (%06x)" % port_addr
             )

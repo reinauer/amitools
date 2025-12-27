@@ -82,6 +82,28 @@ class ExecLibrary(LibImpl):
         self.signal_func.signal(task, signals)
 
     def Wait(self, ctx, signal_set):
+        # Check if we're in fallback mode (no scheduler task)
+        sched_task = self.signal_func.get_my_sched_task()
+        if sched_task is None:
+            # Fallback mode - check if any signals are already set
+            from .lexec.signalfunc import SignalFunc
+            got = SignalFunc._fallback_signals & signal_set
+            if got != 0:
+                # Clear the received signals and return them
+                SignalFunc._fallback_signals &= ~got
+                log_exec.info("Wait(%08x): fallback immediate -> %08x", signal_set, got)
+                return got
+            else:
+                # No signals pending - block
+                sp = ctx.cpu.r_reg(REG_A7)
+                ExecLibrary._wait_blocked_sp = sp
+                ExecLibrary._wait_blocked_mask = signal_set
+                ExecLibrary._wait_blocked_ret = ctx.mem.r32(sp)
+                log_exec.info("Wait(%08x): fallback blocking (sp=%08x)", signal_set, sp)
+                raise UnsupportedFeatureError(
+                    "Wait on signal set %08x with no signals pending" % signal_set
+                )
+        # Normal path with scheduler
         return self.signal_func.wait(signal_set)
 
     def Disable(self, ctx):
@@ -615,6 +637,14 @@ class ExecLibrary(LibImpl):
         log_exec.info("WaitIO(io=0x%06x)", io_addr)
         return io.r_s("io_Error")
 
+    # Class variables for tracking blocked WaitPort/Wait state (used by amifuse)
+    _waitport_blocked_sp = None
+    _waitport_blocked_port = None
+    _waitport_blocked_ret = None
+    _wait_blocked_sp = None
+    _wait_blocked_ret = None
+    _wait_blocked_mask = None
+
     def WaitPort(self, ctx):
         port_addr = ctx.cpu.r_reg(REG_A0)
         log_exec.info("WaitPort: port=%06x" % (port_addr))
@@ -625,6 +655,12 @@ class ExecLibrary(LibImpl):
             )
         has_msg = self.port_mgr.has_msg(port_addr)
         if not has_msg:
+            # Set blocking state before raising exception (for amifuse resume support)
+            sp = ctx.cpu.r_reg(REG_A7)
+            ExecLibrary._waitport_blocked_sp = sp
+            ExecLibrary._waitport_blocked_port = port_addr
+            # Return address is at top of stack
+            ExecLibrary._waitport_blocked_ret = ctx.mem.r32(sp)
             raise UnsupportedFeatureError(
                 "WaitPort on empty message queue called: Port (%06x)" % port_addr
             )
