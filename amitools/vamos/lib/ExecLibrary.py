@@ -473,6 +473,20 @@ class ExecLibrary(LibImpl):
         log_exec.info("CreateMsgPort: -> port=%06x" % (port))
         return port
 
+    def FindPort(self, ctx):
+        name_ptr = ctx.cpu.r_reg(REG_A1)
+        if name_ptr == 0:
+            log_exec.info("FindPort(NULL) -> 0")
+            return 0
+        try:
+            name = ctx.mem.r_cstr(name_ptr)
+        except Exception:
+            name = "<invalid>"
+        print(f"[FindPort] Looking for port '{name}' -> 0 (not found)")
+        log_exec.info("FindPort('%s') -> 0 (not implemented)" % name)
+        # TODO: implement actual port lookup
+        return 0
+
     def DeleteMsgPort(self, ctx):
         port = ctx.cpu.r_reg(REG_A0)
         log_exec.info("DeleteMsgPort(%06x)" % port)
