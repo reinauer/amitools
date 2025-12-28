@@ -28,6 +28,11 @@ from amitools.vamos.libstructs import (
     PathStruct,
     DosListVolumeStruct,
     DosListAssignStruct,
+    ProcessStruct,
+    MsgPortStruct,
+    ListStruct,
+    TaskState,
+    MsgPortFlags,
 )
 from amitools.vamos.libtypes import TagList, DosTag
 from amitools.vamos.error import *
@@ -46,6 +51,7 @@ from .dos.FileManager import FileManager
 from .dos.CSource import *
 from .dos.Item import *
 from amitools.vamos.dos import run_command, run_sub_process
+from amitools.vamos.task import Stack
 
 
 class DosLibrary(LibImpl):
@@ -243,6 +249,163 @@ class DosLibrary(LibImpl):
             % (dp_addr, res1, res2, reply_port)
         )
         return 0
+
+    # Track child processes created by CreateNewProc (for ProcessManager integration)
+    _child_processes = {}  # proc_addr -> ProcessInfo dict
+
+    def CreateNewProc(self, ctx):
+        """Create a new process from NP_ tags.
+
+        This is used by filesystems like SFS to spawn child processes.
+        Returns the Process address on success, 0 on failure.
+        """
+        tags_addr = ctx.cpu.r_reg(REG_D1)
+        if tags_addr == 0:
+            log_dos.warning("CreateNewProc: NULL tags")
+            return 0
+
+        tags = TagList(ctx.mem, tags_addr)
+        tag_list = tags.to_list(map_enum=DosTag, do_map=True)
+        log_dos.info("CreateNewProc: tags=%s", tag_list)
+
+        # Parse key NP_ tags
+        entry_pc = tags.get_tag_data(DosTag.NP_Entry, 0)
+        seglist_bptr = tags.get_tag_data(DosTag.NP_SegList, 0)
+        stack_size = tags.get_tag_data(DosTag.NP_StackSize, 4096)
+        name_ptr = tags.get_tag_data(DosTag.NP_Name, 0)
+        priority = tags.get_tag_data(DosTag.NP_Priority, 0)
+        current_dir = tags.get_tag_data(DosTag.NP_CurrentDir, 0)
+        home_dir = tags.get_tag_data(DosTag.NP_HomeDir, 0)
+        input_fh = tags.get_tag_data(DosTag.NP_Input, 0)
+        output_fh = tags.get_tag_data(DosTag.NP_Output, 0)
+
+        # Get name string
+        if name_ptr != 0:
+            name = ctx.mem.r_cstr(name_ptr)
+        else:
+            name = "child_process"
+
+        # Need either NP_Entry or NP_SegList
+        if entry_pc == 0 and seglist_bptr == 0:
+            log_dos.warning("CreateNewProc: no NP_Entry or NP_SegList")
+            return 0
+
+        # If only seglist provided, get entry from first segment
+        if entry_pc == 0 and seglist_bptr != 0:
+            seg_addr = seglist_bptr << 2
+            # Entry point is at seg_addr + 4 (after BPTR to next segment)
+            entry_pc = seg_addr + 4
+
+        log_dos.info(
+            "CreateNewProc: name=%s entry=%06x stack=%d pri=%d",
+            name, entry_pc, stack_size, priority
+        )
+
+        # Allocate stack
+        stack = Stack.alloc(ctx.alloc, stack_size, name=name + "_Stack")
+        # Clear stack
+        ctx.mem.w_block(stack.get_lower(), b"\x00" * stack.get_size())
+
+        # Allocate Process structure
+        proc_mem = ctx.alloc.alloc_memory(
+            ProcessStruct.get_size(), label="ChildProcess_" + name
+        )
+        # Clear struct
+        ctx.mem.w_block(proc_mem.addr, b"\x00" * ProcessStruct.get_size())
+
+        proc = AccessStruct(ctx.mem, ProcessStruct, proc_mem.addr)
+
+        # Allocate name string
+        name_cstr = ctx.alloc.alloc_memory(len(name) + 1, label="ProcName_" + name)
+        ctx.mem.w_cstr(name_cstr.addr, name)
+
+        # Initialize Task fields within Process
+        proc.w_s("pr_Task.tc_Node.ln_Type", NodeType.NT_PROCESS)
+        proc.w_s("pr_Task.tc_Node.ln_Name", name_cstr.addr)
+        proc.w_s("pr_Task.tc_Node.ln_Pri", priority)
+        proc.w_s("pr_Task.tc_State", TaskState.TS_READY)
+        proc.w_s("pr_Task.tc_Flags", 0)
+        proc.w_s("pr_Task.tc_IDNestCnt", 0)
+        proc.w_s("pr_Task.tc_TDNestCnt", 0)
+        proc.w_s("pr_Task.tc_SPReg", stack.get_initial_sp())
+        proc.w_s("pr_Task.tc_SPLower", stack.get_lower())
+        proc.w_s("pr_Task.tc_SPUpper", stack.get_upper())
+
+        # Initialize Process-specific fields
+        proc.w_s("pr_StackSize", stack.get_size())
+        proc.w_s("pr_StackBase", stack.get_lower())
+        proc.w_s("pr_SegList", seglist_bptr)
+        proc.w_s("pr_GlobVec", 0xFFFFFFFF)
+        proc.w_s("pr_CurrentDir", current_dir)
+        proc.w_s("pr_HomeDir", home_dir)
+        proc.w_s("pr_WindowPtr", 0xFFFFFFFF)
+
+        # Set up file handles (copy from parent if not specified)
+        if input_fh == 0 or output_fh == 0:
+            parent_proc = ctx.exec_lib.exec_lib.this_task.aptr
+            if parent_proc != 0:
+                parent = AccessStruct(ctx.mem, ProcessStruct, parent_proc)
+                if input_fh == 0:
+                    input_fh = parent.r_s("pr_CIS")
+                if output_fh == 0:
+                    output_fh = parent.r_s("pr_COS")
+        proc.w_s("pr_CIS", input_fh)
+        proc.w_s("pr_COS", output_fh)
+
+        # Initialize pr_MsgPort for this process
+        port_addr = proc.s_get_addr("pr_MsgPort")
+        self._init_child_msgport(ctx, port_addr, proc_mem.addr)
+
+        # Allocate a signal bit for the port and set it in task
+        sigbit = 8  # Use signal 8 like parent handler
+        proc.w_s("pr_Task.tc_SigAlloc", 1 << sigbit)
+        proc.w_s("pr_Task.tc_SigWait", 0)
+        proc.w_s("pr_Task.tc_SigRecvd", 0)
+
+        # Register port with exec port manager
+        if not ctx.exec_lib.port_mgr.has_port(port_addr):
+            ctx.exec_lib.port_mgr.register_port(port_addr)
+
+        # Store process info for ProcessManager to pick up
+        proc_info = {
+            "proc_addr": proc_mem.addr,
+            "entry_pc": entry_pc,
+            "stack": stack,
+            "port_addr": port_addr,
+            "name": name,
+            "seglist_bptr": seglist_bptr,
+        }
+        DosLibrary._child_processes[proc_mem.addr] = proc_info
+
+        log_dos.info(
+            "CreateNewProc: created process %06x entry=%06x port=%06x",
+            proc_mem.addr, entry_pc, port_addr
+        )
+
+        return proc_mem.addr
+
+    def _init_child_msgport(self, ctx, port_addr, task_addr):
+        """Initialize a message port for a child process."""
+        mp = AccessStruct(ctx.mem, MsgPortStruct, port_addr)
+        # Zero first to clear garbage
+        ctx.mem.w_block(port_addr, b"\x00" * MsgPortStruct.get_size())
+        mp.w_s("mp_Node.ln_Type", NodeType.NT_MSGPORT)
+        mp.w_s("mp_Flags", MsgPortFlags.PA_SIGNAL)
+        mp.w_s("mp_SigBit", 8)  # Use signal 8
+        mp.w_s("mp_SigTask", task_addr)
+
+        # Initialize mp_MsgList as a proper empty Amiga list
+        lst_off = MsgPortStruct.sdef.find_field_def_by_name("mp_MsgList").offset
+        list_addr = port_addr + lst_off
+        lst = AccessStruct(ctx.mem, ListStruct, list_addr)
+        # Get addresses of list header fields
+        lh_head_addr = list_addr + ListStruct.sdef.find_field_def_by_name("lh_Head").offset
+        lh_tail_addr = list_addr + ListStruct.sdef.find_field_def_by_name("lh_Tail").offset
+        # Empty list: Head points to Tail address, TailPred points to Head address
+        lst.w_s("lh_Head", lh_tail_addr)
+        lst.w_s("lh_Tail", 0)
+        lst.w_s("lh_TailPred", lh_head_addr)
+        lst.w_s("lh_Type", NodeType.NT_MESSAGE)
 
     def Fault(self, ctx):
         errcode = ctx.cpu.r_reg(REG_D1)
