@@ -2065,6 +2065,51 @@ class DosLibrary(LibImpl):
         node = ctx.cpu.r_reg(REG_D1)
         return self.dos_list.next_dos_entry(flags, node)
 
+    def FindDosEntry(self, ctx):
+        """FindDosEntry(dlist, name, flags) - find a DosList entry by name."""
+        dlist = ctx.cpu.r_reg(REG_D1)
+        name_ptr = ctx.cpu.r_reg(REG_D2)
+        flags = ctx.cpu.r_reg(REG_D3)
+
+        # Read the name (BSTR)
+        if name_ptr == 0:
+            log_dos.info("FindDosEntry(dlist=0x%x, name=NULL, flags=0x%x) -> 0", dlist, flags)
+            return 0
+        try:
+            name = ctx.mem.r_bstr(name_ptr)
+        except Exception:
+            log_dos.info("FindDosEntry: failed to read BSTR at 0x%x", name_ptr)
+            return 0
+
+        # Strip trailing colon if present
+        if name and name.endswith(":"):
+            name = name[:-1]
+
+        # Look up by name in DosList
+        entry = self.dos_list.get_entry_by_name(name)
+        if entry is None:
+            log_dos.info("FindDosEntry('%s', flags=0x%x) -> 0 (not found)", name, flags)
+            return 0
+
+        # Check if entry type matches flags
+        # LDF_DEVICES = 4, LDF_VOLUMES = 8, LDF_ASSIGNS = 16
+        entry_type = entry.access.r_s("dol_Type")
+        type_matches = False
+        if entry_type == 0 and (flags & 4):  # DLT_DEVICE
+            type_matches = True
+        elif entry_type == 2 and (flags & 8):  # DLT_VOLUME
+            type_matches = True
+        elif entry_type == 1 and (flags & 16):  # DLT_DIRECTORY (assign)
+            type_matches = True
+
+        if not type_matches:
+            log_dos.info("FindDosEntry('%s', flags=0x%x) -> 0 (type %d doesn't match)",
+                        name, flags, entry_type)
+            return 0
+
+        log_dos.info("FindDosEntry('%s', flags=0x%x) -> 0x%x", name, flags, entry.mem.addr)
+        return entry.mem.addr
+
     def AttemptLockDosList(self, ctx):
         flags = ctx.cpu.r_reg(REG_D1)
         if not getattr(self, "_attempt_lock_warned", False):
