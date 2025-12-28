@@ -1,9 +1,9 @@
 import stat
 
 # Fallbacks for Windows (these map to HOLD, PURE, SCRIPT)
-_S_ISUID = getattr(stat, 'S_ISUID', 0)
-_S_ISGID = getattr(stat, 'S_ISGID', 0)
-_S_ISVTX = getattr(stat, 'S_ISVTX', 0)
+_S_ISUID = getattr(stat, "S_ISUID", 0)
+_S_ISGID = getattr(stat, "S_ISGID", 0)
+_S_ISVTX = getattr(stat, "S_ISVTX", 0)
 
 
 class DosProtection:
@@ -77,21 +77,24 @@ class DosProtection:
         """
         # Owner bits: inverted (Unix bit set = Amiga bit clear)
         prot = (
-            (0 if mode & stat.S_IRUSR else cls.FIBF_READ) |
-            (0 if mode & stat.S_IWUSR else cls.FIBF_WRITE | cls.FIBF_DELETE) |
-            (0 if mode & stat.S_IXUSR else cls.FIBF_EXECUTE) |
+            (0 if mode & stat.S_IRUSR else cls.FIBF_READ)
+            | (0 if mode & stat.S_IWUSR else cls.FIBF_WRITE | cls.FIBF_DELETE)
+            | (0 if mode & stat.S_IXUSR else cls.FIBF_EXECUTE)
+            |
             # Group bits: direct mapping
-            (cls.FIBF_GRP_READ if mode & stat.S_IRGRP else 0) |
-            (cls.FIBF_GRP_WRITE | cls.FIBF_GRP_DELETE if mode & stat.S_IWGRP else 0) |
-            (cls.FIBF_GRP_EXECUTE if mode & stat.S_IXGRP else 0) |
+            (cls.FIBF_GRP_READ if mode & stat.S_IRGRP else 0)
+            | (cls.FIBF_GRP_WRITE | cls.FIBF_GRP_DELETE if mode & stat.S_IWGRP else 0)
+            | (cls.FIBF_GRP_EXECUTE if mode & stat.S_IXGRP else 0)
+            |
             # Other bits: direct mapping
-            (cls.FIBF_OTR_READ if mode & stat.S_IROTH else 0) |
-            (cls.FIBF_OTR_WRITE | cls.FIBF_OTR_DELETE if mode & stat.S_IWOTH else 0) |
-            (cls.FIBF_OTR_EXECUTE if mode & stat.S_IXOTH else 0) |
+            (cls.FIBF_OTR_READ if mode & stat.S_IROTH else 0)
+            | (cls.FIBF_OTR_WRITE | cls.FIBF_OTR_DELETE if mode & stat.S_IWOTH else 0)
+            | (cls.FIBF_OTR_EXECUTE if mode & stat.S_IXOTH else 0)
+            |
             # Special bits: SUID -> HOLD, SGID -> PURE, sticky -> SCRIPT
-            (cls.FIBF_HOLD if mode & _S_ISUID else 0) |
-            (cls.FIBF_PURE if mode & _S_ISGID else 0) |
-            (cls.FIBF_SCRIPT if mode & _S_ISVTX else 0)
+            (cls.FIBF_HOLD if mode & _S_ISUID else 0)
+            | (cls.FIBF_PURE if mode & _S_ISGID else 0)
+            | (cls.FIBF_SCRIPT if mode & _S_ISVTX else 0)
         )
         return cls(prot)
 
@@ -104,20 +107,23 @@ class DosProtection:
         m = self.mask
         # Owner bits: inverted (Amiga bit set = Unix bit clear)
         mode = (
-            (0 if m & self.FIBF_READ else stat.S_IRUSR) |
-            (0 if m & self.FIBF_WRITE else stat.S_IWUSR) |
-            (0 if m & self.FIBF_EXECUTE else stat.S_IXUSR) |
+            (0 if m & self.FIBF_READ else stat.S_IRUSR)
+            | (0 if m & self.FIBF_WRITE else stat.S_IWUSR)
+            | (0 if m & self.FIBF_EXECUTE else stat.S_IXUSR)
+            |
             # Group bits: direct mapping
-            (stat.S_IRGRP if m & self.FIBF_GRP_READ else 0) |
-            (stat.S_IWGRP if m & self.FIBF_GRP_WRITE else 0) |
-            (stat.S_IXGRP if m & self.FIBF_GRP_EXECUTE else 0) |
+            (stat.S_IRGRP if m & self.FIBF_GRP_READ else 0)
+            | (stat.S_IWGRP if m & self.FIBF_GRP_WRITE else 0)
+            | (stat.S_IXGRP if m & self.FIBF_GRP_EXECUTE else 0)
+            |
             # Other bits: direct mapping
-            (stat.S_IROTH if m & self.FIBF_OTR_READ else 0) |
-            (stat.S_IWOTH if m & self.FIBF_OTR_WRITE else 0) |
-            (stat.S_IXOTH if m & self.FIBF_OTR_EXECUTE else 0) |
+            (stat.S_IROTH if m & self.FIBF_OTR_READ else 0)
+            | (stat.S_IWOTH if m & self.FIBF_OTR_WRITE else 0)
+            | (stat.S_IXOTH if m & self.FIBF_OTR_EXECUTE else 0)
+            |
             # Special bits: HOLD -> SUID, PURE -> SGID, SCRIPT -> sticky
-            (_S_ISUID if m & self.FIBF_HOLD else 0) |
-            (_S_ISGID if m & self.FIBF_PURE else 0) |
-            (_S_ISVTX if m & self.FIBF_SCRIPT else 0)
+            (_S_ISUID if m & self.FIBF_HOLD else 0)
+            | (_S_ISGID if m & self.FIBF_PURE else 0)
+            | (_S_ISVTX if m & self.FIBF_SCRIPT else 0)
         )
         return mode
