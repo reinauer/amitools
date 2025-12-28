@@ -495,6 +495,37 @@ class ExecLibrary(LibImpl):
         log_exec.info("CreateMsgPort: -> port=%06x" % (port))
         return port
 
+    def AddPort(self, ctx):
+        """Add a port to the public port list."""
+        port_addr = ctx.cpu.r_reg(REG_A1)
+        if port_addr == 0:
+            log_exec.warning("AddPort: NULL port")
+            return 0
+        # Register the port with port manager if not already registered
+        if not self.port_mgr.has_port(port_addr):
+            self.port_mgr.register_port(port_addr)
+        # Read port name for debugging
+        try:
+            mp = AccessStruct(ctx.mem, MsgPortStruct, port_addr)
+            name_addr = mp.r_s("mp_Node.ln_Name")
+            port_name = ctx.mem.r_cstr(name_addr) if name_addr else "unnamed"
+        except:
+            port_name = "?"
+        log_exec.info("AddPort: port=%06x name=%s" % (port_addr, port_name))
+        return 0
+
+    def RemPort(self, ctx):
+        """Remove a port from the public port list."""
+        port_addr = ctx.cpu.r_reg(REG_A1)
+        if port_addr == 0:
+            log_exec.warning("RemPort: NULL port")
+            return 0
+        # Unregister the port if it was registered
+        if self.port_mgr.has_port(port_addr):
+            self.port_mgr.unregister_port(port_addr)
+        log_exec.info("RemPort: port=%06x" % port_addr)
+        return 0
+
     def FindPort(self, ctx):
         name_ptr = ctx.cpu.r_reg(REG_A1)
         if name_ptr == 0:
@@ -504,9 +535,31 @@ class ExecLibrary(LibImpl):
             name = ctx.mem.r_cstr(name_ptr)
         except Exception:
             name = "<invalid>"
-        print(f"[FindPort] Looking for port '{name}' -> 0 (not found)")
-        log_exec.info("FindPort('%s') -> 0 (not implemented)" % name)
-        # TODO: implement actual port lookup
+
+        # First, check if this port exists in the public port list (via AddPort)
+        # Look it up by searching registered ports for matching name
+        port_addr = self._find_port_by_name(ctx, name)
+        if port_addr:
+            log_exec.info("FindPort('%s') -> %06x" % (name, port_addr))
+            return port_addr
+
+        log_exec.info("FindPort('%s') -> 0 (not found)" % name)
+        return 0
+
+    def _find_port_by_name(self, ctx, name):
+        """Look up a port by name in registered ports."""
+        from amitools.vamos.libstructs.exec_ import MsgPortStruct, NodeStruct
+        # Search all registered ports for one with matching ln_Name
+        for addr in self.port_mgr.ports:
+            try:
+                mp = AccessStruct(ctx.mem, MsgPortStruct, addr)
+                name_addr = mp.r_s("mp_Node.ln_Name")
+                if name_addr != 0:
+                    port_name = ctx.mem.r_cstr(name_addr)
+                    if port_name == name:
+                        return addr
+            except Exception:
+                pass
         return 0
 
     def DeleteMsgPort(self, ctx):
