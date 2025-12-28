@@ -104,8 +104,9 @@ def dump_obj(obj, **kw_args):
     def print_func(txt):
         result.append(txt)
 
-    dumper = TypeDumper(print_func=print_func)
-    dumper.dump_obj(obj, **kw_args)
+    #dumper = TypeDumper(print_func=print_func)
+    #dumper.dump_obj(obj, **kw_args)
+    obj.dump(print_func=print_func, **kw_args)
     return result
 
 

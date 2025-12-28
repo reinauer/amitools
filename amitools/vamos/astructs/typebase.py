@@ -63,6 +63,13 @@ class TypeBase:
         if reg:
             assert cpu
 
+    def dump(self, print_func=print, **kw_args):
+        """dump the instance's contents"""
+        from .dump import TypeDumper
+
+        dumper = TypeDumper(print_func)
+        dumper.dump_obj(self, **kw_args)
+
     def clone(self, cls):
         """clone type into a new class"""
         kw_args = {"alloc": self._cpu, "mem_obj": self._mem_obj}
