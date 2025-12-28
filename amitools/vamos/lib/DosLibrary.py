@@ -204,6 +204,11 @@ class DosLibrary(LibImpl):
         res2 = ctx.cpu.r_reg(REG_D3)
         if dp_addr == 0:
             return 0
+        # Convert unsigned 32-bit to signed (e.g., 0xFFFFFFFF -> -1 for DOSTRUE)
+        if res1 > 0x7FFFFFFF:
+            res1 = res1 - 0x100000000
+        if res2 > 0x7FFFFFFF:
+            res2 = res2 - 0x100000000
         pkt = AccessStruct(ctx.mem, DosPacketStruct, dp_addr)
         pkt.w_s("dp_Res1", res1)
         pkt.w_s("dp_Res2", res2)
