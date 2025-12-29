@@ -53,7 +53,8 @@ class MessageFunc(FuncBase):
         has_port = self.port_mgr.has_port(port.addr)
         if has_port:
             log_exec.info("PutMsg(%s, %s) -> PortMgr", port, msg)
-            return self.port_mgr.put_msg(port.addr, msg.addr)
+            self.port_mgr.put_msg(port.addr, msg.addr)
+            return
 
         # set type
         msg.node.type.val = msg_type
@@ -85,8 +86,9 @@ class MessageFunc(FuncBase):
         # check legacy port manager first
         has_port = self.port_mgr.has_port(port.addr)
         if has_port:
-            msg = self.port_mgr.get_msg(port.addr)
-            log_exec.info("GetMsg(%s) -> PortMgr -> %s", msg)
+            msg_addr = self.port_mgr.get_msg(port.addr)
+            msg = Message(self.ctx.mem, msg_addr)
+            log_exec.info("GetMsg(%s) -> PortMgr -> %s", port, msg)
             return msg
 
         # get message list
