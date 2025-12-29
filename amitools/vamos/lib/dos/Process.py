@@ -77,6 +77,7 @@ class Process(DosProcess):
         self.alloc_cli_struct()
         self.init_task_struct(input_fh, output_fh)
         self.init_cli_struct(input_fh, output_fh, self.bin_basename)
+        self.set_cwd()
 
     def free(self):
         self.free_cwd()
