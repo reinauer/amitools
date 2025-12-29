@@ -370,10 +370,10 @@ class AmigaStruct(TypeBase):
             if field:
                 field.setup(val, alloc, free_refs)
 
-    def free(self):
+    def free(self, *args, **kw_args):
         for free_ref in self._free_refs:
             free_ref.free_ref()
-        super().free()
+        super().free(*args, **kw_args)
 
     def __repr__(self):
         return "[AStruct:%s,@%06x+%06x]" % (
@@ -411,3 +411,24 @@ class AmigaStruct(TypeBase):
             if sub_obj is not None:
                 sub_path = self._skip_path_field(path, field)
                 return sub_obj.get_path(sub_path)
+
+    def cast(self, cls):
+        """cast is similar to clone but checks if structs match"""
+        # cast only to other structs
+        if not issubclass(cls, AmigaStruct):
+            raise ValueError("Cast only allowed to AmigaStruct")
+
+        # check for up cast
+        sub_fields, _ = cls.sdef.find_sub_field_defs_by_offset(0)
+        for field in sub_fields:
+            if field.type is self.__class__:
+                return self.clone(cls)
+
+        # check for down cast
+        sub_fields, _ = self.__class__.sdef.find_sub_field_defs_by_offset(0)
+        for field in sub_fields:
+            if field.type is cls:
+                return self.clone(cls)
+
+        # no compatible cast found
+        raise ValueError(f"Cast not possible: {self.__class__} -> {cls}")
