@@ -222,11 +222,14 @@ def libtypes_list_find_name_promote_test():
     addr = 0x60
     n1, addr = add_node(l, addr, "hello", type=NodeType.NT_TASK)
     n2, addr = add_node(l, addr, "world", type=NodeType.NT_PROCESS)
-    task = l.find_name("hello")
+    task = l.find_name("hello", promote=True)
     assert type(task) is Task
-    proc = l.find_name("world")
+    proc = l.find_name("world", promote=True)
     assert type(proc) is Process
-
+    task = l.get_head(promote=True)
+    assert type(task) is Task
+    proc = l.get_tail(promote=True)
+    assert type(proc) is Process
 
 def libtypes_list_alloc_test():
     mem = MockMemory()
