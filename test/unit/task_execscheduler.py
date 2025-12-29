@@ -15,7 +15,7 @@ class Ctx:
         self.exec_lib = ExecLibrary.alloc(
             self.alloc, name="exec.library", id_string="bla", neg_size=20
         )
-        self.exec_lib.new_lib()
+        self.exec_lib.new()
         self.exec_scheduler = ExecScheduler(self.scheduler, self.exec_lib)
 
     def cleanup(self):

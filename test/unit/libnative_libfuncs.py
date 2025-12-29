@@ -19,12 +19,12 @@ def libnative_libfuncs_add_library_test():
     )
     assert exec_lib.LibNode.neg_size.val == 36
     assert exec_lib.LibNode.pos_size.val == ExecLibrary.get_size()
-    exec_lib.new_lib()
+    exec_lib.new()
     mem.w32(4, exec_lib.get_addr())
     # new lib
     lib = Library.alloc(alloc, name="my.library", id_string="bla", neg_size=36)
     assert lib.neg_size.val == 36
-    lib.new_lib()
+    lib.new()
     mem.w32(lib.get_addr() - 36, 0xDEADBEEF)
     # check initial lib sum
     assert lib.sum.val == 0
@@ -52,7 +52,7 @@ def libnative_libfuncs_sum_library_test():
     alloc = MemoryAlloc.for_machine(machine)
     # new lib
     lib = Library.alloc(alloc, name="my.library", id_string="bla", neg_size=36)
-    lib.new_lib()
+    lib.new()
     mem.w32(lib.get_addr() - 36, 0xDEADBEEF)
     # sum lib
     lf = LibFuncs(mem, alloc, runtime.run)
@@ -74,7 +74,7 @@ def libnative_libfuncs_rem_library_test():
     segloader = SegmentLoader(alloc)
     # new lib
     lib = Library.alloc(alloc, name="my.library", id_string="bla", neg_size=36)
-    lib.new_lib()
+    lib.new()
     # setup seglist
     seglist = SegList.alloc(alloc, [64])
     segloader.register_seglist(seglist.get_baddr())
@@ -109,7 +109,7 @@ def libnative_libfuncs_close_library_test():
     segloader = SegmentLoader(alloc)
     # new lib
     lib = Library.alloc(alloc, name="my.library", id_string="bla", neg_size=36)
-    lib.new_lib()
+    lib.new()
     # setup seglist
     seglist = SegList.alloc(alloc, [64])
     segloader.register_seglist(seglist.get_baddr())
@@ -143,7 +143,7 @@ def libnative_libfuncs_open_library_test():
     alloc = MemoryAlloc.for_machine(machine)
     # new lib
     lib = Library.alloc(alloc, name="my.library", id_string="bla", neg_size=36)
-    lib.new_lib()
+    lib.new()
     # setup open func
 
     def open_func(op, pc):
@@ -173,7 +173,7 @@ def libnative_libfuncs_set_function_test():
     # new lib
     lib = Library.alloc(alloc, name="my.library", id_string="bla", neg_size=36)
     lib_addr = lib.get_addr()
-    lib.new_lib()
+    lib.new()
     lib.fill_funcs(op_jmp, 0xCAFEBABE)
     assert lib.neg_size.val == 36
     # patch function

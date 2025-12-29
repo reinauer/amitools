@@ -42,6 +42,10 @@ class ListBase:
             l += 1
         return l
 
+    def is_empty(self):
+        node = self._head.succ.ref
+        return node.succ.ref is None
+
     def to_list(self):
         return [a for a in self]
 
@@ -76,6 +80,12 @@ class ListBase:
         node.remove()
         return node
 
+    def get_head(self):
+        return self._head.succ.ref
+
+    def get_tail(self):
+        return self.tail_pred.ref
+
     def insert(self, node, pred):
         if pred is not None and pred != self._head:
             pred_succ = pred.succ.ref
@@ -108,7 +118,7 @@ class MinList(MinListStruct, ListBase):
             self.tail_pred.aptr,
         )
 
-    def new_list(self):
+    def new(self):
         self.head.ref = self._tail
         self.tail.ref = None
         self.tail_pred.ref = self._head
@@ -147,7 +157,7 @@ class List(ListStruct, ListBase):
 
     # ----- list ops -----
 
-    def new_list(self, lt):
+    def new(self, lt):
         self.type.val = lt
         self.head.ref = self._tail
         self.tail.ref = None

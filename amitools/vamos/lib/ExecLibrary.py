@@ -12,12 +12,13 @@ from amitools.vamos.libstructs import (
     NodeType,
     SignalSemaphoreStruct,
 )
-from amitools.vamos.libtypes import ExecLibrary as ExecLibraryType
+from amitools.vamos.libtypes import ExecLibrary as ExecLibraryType, MsgPort, Message
 from amitools.vamos.libtypes import Task, List
 from amitools.vamos.log import log_exec
 from amitools.vamos.error import VamosInternalError, UnsupportedFeatureError
 from amitools.vamos.lib.lexec.signalfunc import SignalFunc
 from amitools.vamos.lib.lexec.taskfunc import TaskFunc
+from amitools.vamos.lib.lexec.msgfunc import MessageFunc
 from .lexec.PortManager import PortManager
 from .lexec.SemaphoreManager import SemaphoreManager
 from .lexec.Pool import Pool
@@ -37,10 +38,10 @@ class ExecLibrary(LibImpl):
         self._poolid = 0x1000
         self.exec_lib = ExecLibraryType(ctx.mem, base_addr)
         # init lib list
-        self.exec_lib.lib_list.new_list(NodeType.NT_LIBRARY)
-        self.exec_lib.device_list.new_list(NodeType.NT_DEVICE)
-        self.exec_lib.task_ready.new_list(NodeType.NT_TASK)
-        self.exec_lib.task_wait.new_list(NodeType.NT_TASK)
+        self.exec_lib.lib_list.new(NodeType.NT_LIBRARY)
+        self.exec_lib.device_list.new(NodeType.NT_DEVICE)
+        self.exec_lib.task_ready.new(NodeType.NT_TASK)
+        self.exec_lib.task_wait.new(NodeType.NT_TASK)
         # set some system contants
         attn_flags = 0
         if ctx.cpu_name == "68030(fake)":
@@ -57,6 +58,9 @@ class ExecLibrary(LibImpl):
         self.mem = ctx.mem
         self.signal_func = SignalFunc(ctx, self.exec_lib)
         self.task_func = TaskFunc(ctx, self.exec_lib)
+        self.msg_func = MessageFunc(
+            ctx, self.exec_lib, self.signal_func, self.task_func, self.port_mgr
+        )
 
     # helper
 
@@ -65,7 +69,7 @@ class ExecLibrary(LibImpl):
         sp = ctx.cpu.r_reg(REG_A7)
         return ctx.mem.r32(sp)
 
-    # ----- System -----
+    # ----- Signals -----
 
     def AllocSignal(self, ctx, signal_num: BYTE):
         return self.signal_func.alloc_signal(signal_num.val)
@@ -99,6 +103,8 @@ class ExecLibrary(LibImpl):
 
     def Permit(self, ctx):
         self.signal_func.permit()
+
+    # ----- Tasks -----
 
     def FindTask(self, ctx, task_name: CSTR) -> Task:
         return self.task_func.find_task(task_name.str)
@@ -296,6 +302,8 @@ class ExecLibrary(LibImpl):
         log_exec.info("FindResident: '%s'" % (name))
         return 0
 
+    # ----- Pools -----
+
     def CreatePool(self, ctx):
         # need some sort of uniq id.
         # HACK: this is a hack to produce private uniq ids
@@ -423,43 +431,22 @@ class ExecLibrary(LibImpl):
 
     # ----- Message Passing -----
 
-    def PutMsg(self, ctx):
-        port_addr = ctx.cpu.r_reg(REG_A0)
-        msg_addr = ctx.cpu.r_reg(REG_A1)
-        log_exec.info("PutMsg: port=%06x msg=%06x" % (port_addr, msg_addr))
-        has_port = self.port_mgr.has_port(port_addr)
-        if not has_port:
-            raise VamosInternalError(
-                "PutMsg: on invalid Port (%06x) called!" % port_addr
-            )
-        self.port_mgr.put_msg(port_addr, msg_addr)
+    def PutMsg(self, ctx, port: MsgPort, msg: Message):
+        return self.msg_func.put_msg(port, msg)
 
-    def GetMsg(self, ctx):
-        port_addr = ctx.cpu.r_reg(REG_A0)
-        log_exec.info("GetMsg: port=%06x" % (port_addr))
-        has_port = self.port_mgr.has_port(port_addr)
-        if not has_port:
-            raise VamosInternalError(
-                "GetMsg: on invalid Port (%06x) called!" % port_addr
-            )
-        msg_addr = self.port_mgr.get_msg(port_addr)
-        if msg_addr != None:
-            log_exec.info("GetMsg: got message %06x" % (msg_addr))
-            return msg_addr
-        else:
-            log_exec.info("GetMsg: no message available!")
-            return 0
+    def GetMsg(self, ctx, port: MsgPort) -> Message:
+        return self.msg_func.get_msg(port)
 
-    def CreateMsgPort(self, ctx):
-        port = self.port_mgr.create_port("exec_port", None)
-        log_exec.info("CreateMsgPort: -> port=%06x" % (port))
-        return port
+    def CreateMsgPort(self, ctx) -> MsgPort:
+        return self.msg_func.create_msg_port()
 
-    def DeleteMsgPort(self, ctx):
-        port = ctx.cpu.r_reg(REG_A0)
-        log_exec.info("DeleteMsgPort(%06x)" % port)
-        self.port_mgr.free_port(port)
-        return 0
+    def DeleteMsgPort(self, ctx, msg_port: MsgPort):
+        return self.msg_func.delete_msg_port(msg_port)
+
+    def WaitPort(self, ctx, msg_port: MsgPort) -> Message:
+        return self.msg_func.wait_port(msg_port)
+
+    # ----- IOReq/Devices -----
 
     def CreateIORequest(self, ctx):
         port = ctx.cpu.r_reg(REG_A0)
@@ -515,22 +502,7 @@ class ExecLibrary(LibImpl):
                 self.lib_mgr.close_lib(dev_addr)
                 io.w_s("io_Device", 0)
 
-    def WaitPort(self, ctx):
-        port_addr = ctx.cpu.r_reg(REG_A0)
-        log_exec.info("WaitPort: port=%06x" % (port_addr))
-        has_port = self.port_mgr.has_port(port_addr)
-        if not has_port:
-            raise VamosInternalError(
-                "WaitPort: on invalid Port (%06x) called!" % port_addr
-            )
-        has_msg = self.port_mgr.has_msg(port_addr)
-        if not has_msg:
-            raise UnsupportedFeatureError(
-                "WaitPort on empty message queue called: Port (%06x)" % port_addr
-            )
-        msg_addr = self.port_mgr.peek_msg(port_addr)
-        log_exec.info("WaitPort: peek message %06x" % (msg_addr))
-        return msg_addr
+    # ----- Nodes/Lists -----
 
     def AddTail(self, ctx):
         list_addr = ctx.cpu.r_reg(REG_A0)

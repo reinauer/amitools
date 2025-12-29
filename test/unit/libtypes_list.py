@@ -7,14 +7,14 @@ from amitools.vamos.libstructs import ListStruct, MinListStruct, NodeType
 def new_list():
     mem = MockMemory()
     l = List(mem, 0x40)
-    l.new_list(NodeType.NT_DEVICE)
+    l.new(NodeType.NT_DEVICE)
     return l
 
 
 def new_min_list():
     mem = MockMemory()
     l = MinList(mem, 0x40)
-    l.new_list()
+    l.new()
     return l
 
 
@@ -37,10 +37,14 @@ def libtypes_list_add_head_test():
     n1 = Node(l.mem, 0x50)
     assert len(l) == 0
     l.add_head(n1)
+    assert l.get_head() == n1
+    assert l.get_tail() == n1
     assert len(l) == 1
     assert [a for a in l] == [n1]
     n2 = Node(l.mem, 0x60)
     l.add_head(n2)
+    assert l.get_head() == n2
+    assert l.get_tail() == n1
     assert len(l) == 2
     assert [a for a in l] == [n2, n1]
 
@@ -50,10 +54,14 @@ def libtypes_list_add_tail_test():
     n1 = Node(l.mem, 0x50)
     assert len(l) == 0
     l.add_tail(n1)
+    assert l.get_head() == n1
+    assert l.get_tail() == n1
     assert len(l) == 1
     assert [a for a in l] == [n1]
     n2 = Node(l.mem, 0x60)
     l.add_tail(n2)
+    assert l.get_head() == n1
+    assert l.get_tail() == n2
     assert len(l) == 2
     assert [a for a in l] == [n1, n2]
 
@@ -66,7 +74,9 @@ def libtypes_list_rem_head_test():
     l.add_tail(n2)
     assert len(l) == 2
     assert [a for a in l] == [n1, n2]
+    assert l.get_head() == n1
     r1 = l.rem_head()
+    assert l.get_head() == n2
     assert r1 == n1
     assert len(l) == 1
     assert [a for a in l] == [n2]
@@ -83,7 +93,9 @@ def libtypes_list_rem_tail_test():
     l.add_tail(n2)
     assert len(l) == 2
     assert [a for a in l] == [n1, n2]
+    assert l.get_tail() == n2
     r1 = l.rem_tail()
+    assert l.get_tail() == n1
     assert r1 == n2
     assert len(l) == 1
     assert [a for a in l] == [n1]

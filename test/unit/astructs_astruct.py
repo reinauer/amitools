@@ -280,7 +280,7 @@ def astructs_astruct_alloc2_test():
     assert type(res) is MyStruct
     assert res.ms_Word.val == 21
     assert res.ms_Pad.val == 42
-    res.free(mem.alloc)
+    res.free(alloc)
     assert alloc.is_all_free()
 
 

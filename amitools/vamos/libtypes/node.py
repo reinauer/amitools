@@ -2,6 +2,7 @@ from amitools.vamos.libstructs import NodeStruct, NodeType, MinNodeStruct, Libra
 from amitools.vamos.astructs import AmigaClassDef
 from amitools.vamos.libtypes.process import Process
 from amitools.vamos.libtypes.task import Task
+from amitools.vamos.libtypes.msg import Message
 
 
 node_map = {
@@ -9,6 +10,7 @@ node_map = {
     NodeType.NT_PROCESS: Process,
     NodeType.NT_DEVICE: LibraryStruct,
     NodeType.NT_LIBRARY: LibraryStruct,
+    NodeType.NT_MESSAGE: Message,
 }
 
 

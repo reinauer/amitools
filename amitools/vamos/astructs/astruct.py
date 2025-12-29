@@ -421,13 +421,13 @@ class AmigaStruct(TypeBase):
         # check for up cast
         sub_fields, _ = cls.sdef.find_sub_field_defs_by_offset(0)
         for field in sub_fields:
-            if field.type is self.__class__:
+            if issubclass(self.__class__, field.type):
                 return self.clone(cls)
 
         # check for down cast
         sub_fields, _ = self.__class__.sdef.find_sub_field_defs_by_offset(0)
         for field in sub_fields:
-            if field.type is cls:
+            if issubclass(cls, field.type):
                 return self.clone(cls)
 
         # no compatible cast found

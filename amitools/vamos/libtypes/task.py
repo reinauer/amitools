@@ -12,7 +12,7 @@ class Task(TaskStruct):
 
         self.flags.val = flags
         self.state.val = TaskState.TS_INVALID
-        self.mem_entry.new_list(NodeType.NT_MEMORY)
+        self.mem_entry.new(NodeType.NT_MEMORY)
         self.sig_alloc.val = 0xFFFF
 
     def promote_type(self):

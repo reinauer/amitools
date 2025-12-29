@@ -92,7 +92,7 @@ def libnative_initres_autoinit_test(buildlibnix):
     exec_lib = ExecLibrary.alloc(
         alloc, name="exec.library", id_string="bla", neg_size=36
     )
-    exec_lib.new_lib()
+    exec_lib.new()
     mem.w32(4, exec_lib.get_addr())
     # init resident
     ir = InitRes(mem, alloc, runtime.run)
