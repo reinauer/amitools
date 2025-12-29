@@ -3,6 +3,7 @@ from .funcbase import FuncBase
 from amitools.vamos.log import log_exec
 from amitools.vamos.libtypes import MsgPort, Message
 from amitools.vamos.libstructs import NodeType, MsgPortFlags
+from amitools.vamos.astructs import CSTR
 
 
 class MessageFunc(FuncBase):
@@ -47,7 +48,7 @@ class MessageFunc(FuncBase):
         # free port
         msg_port.free(self.ctx.alloc)
 
-    def put_msg(self, port: MsgPort, msg: Message):
+    def put_msg(self, port: MsgPort, msg: Message, msg_type=NodeType.NT_MESSAGE):
         # check legacy port manager first
         has_port = self.port_mgr.has_port(port.addr)
         if has_port:
@@ -55,7 +56,7 @@ class MessageFunc(FuncBase):
             return self.port_mgr.put_msg(port.addr, msg.addr)
 
         # set type
-        msg.node.type.val = NodeType.NT_MESSAGE
+        msg.node.type.val = msg_type
 
         # add to port list
         log_exec.info("PutMsg(%s, %s)", port, msg)
@@ -97,7 +98,7 @@ class MessageFunc(FuncBase):
             return None
 
         # get message
-        msg = port.msg_list.rem_head().cast(Message)
+        msg = port.msg_list.rem_head(promote=True)
         log_exec.info("GetMsg(%s) -> %s", port, msg)
         return msg
 
@@ -128,3 +129,30 @@ class MessageFunc(FuncBase):
         msg = msg_list.get_head().cast(Message)
         log_exec.info("WaitPort: return msg %s", msg)
         return msg
+
+    def add_port(self, port: MsgPort):
+        log_exec.info("AddPort(%s)", port)
+        # set port type
+        port.node.type.val = NodeType.NT_MSGPORT
+        # enqueue
+        self.exec_lib.port_list.enqueue(port.node)
+
+    def rem_port(self, port: MsgPort):
+        log_exec.info("RemPort(%s)", port)
+        # remove node
+        port.node.remove()
+
+    def find_port(self, name: CSTR) -> MsgPort:
+        # find port by name in port list
+        port_name = name.str
+        port = self.exec_lib.port_list.find_name(port_name, promote=True)
+        log_exec.info("FindPort(%s) -> %s", port_name, port)
+        return port
+
+    def reply_msg(self, msg: Message):
+        port = msg.reply_port
+        log_exec.info("ReplyPort(%s) -> port %s", msg, port)
+        if port is None:
+            msg.node.type.val = NodeType.NT_FREEMSG
+        else:
+            self.put_msg(port, msg, msg_type=NodeType.NT_REPLYMSG)

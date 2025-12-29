@@ -42,6 +42,7 @@ class ExecLibrary(LibImpl):
         self.exec_lib.device_list.new(NodeType.NT_DEVICE)
         self.exec_lib.task_ready.new(NodeType.NT_TASK)
         self.exec_lib.task_wait.new(NodeType.NT_TASK)
+        self.exec_lib.port_list.new(NodeType.NT_MSGPORT)
         # set some system contants
         attn_flags = 0
         if ctx.cpu_name == "68030(fake)":
@@ -445,6 +446,18 @@ class ExecLibrary(LibImpl):
 
     def WaitPort(self, ctx, msg_port: MsgPort) -> Message:
         return self.msg_func.wait_port(msg_port)
+
+    def AddPort(self, ctx, msg_port: MsgPort):
+        return self.msg_func.add_port(msg_port)
+
+    def RemPort(self, ctx, msg_port: MsgPort):
+        return self.msg_func.rem_port(msg_port)
+
+    def FindPort(self, ctx, name: CSTR) -> MsgPort:
+        return self.msg_func.find_port(name)
+
+    def ReplyMsg(self, ctx, msg: Message):
+        return self.msg_func.reply_msg(msg)
 
     # ----- IOReq/Devices -----
 

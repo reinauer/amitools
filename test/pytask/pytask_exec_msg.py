@@ -139,3 +139,45 @@ def pytask_exec_msg_wait_port_test(vamos_task):
 
     exit_codes = vamos_task.run([task])
     assert exit_codes == [0]
+
+
+def pytask_exec_msg_add_rem_port_test(vamos_task):
+    def task(ctx, task):
+        # get exec library
+        exec_lib = ctx.proxies.get_exec_lib_proxy()
+
+        # create a new port
+        port = exec_lib.CreateMsgPort(wrap_res=MsgPort)
+        assert type(port) is MsgPort
+
+        # set name
+        port.node.name.alloc_str(ctx.alloc, "foo")
+
+        # port is not known yet
+        port2 = exec_lib.FindPort("foo", wrap_res=MsgPort)
+        assert port2 is None
+
+        # add port
+        exec_lib.AddPort(port)
+
+        # now we could find port
+        port2 = exec_lib.FindPort("foo", wrap_res=MsgPort)
+        assert port2 == port
+
+        # remove port again
+        exec_lib.RemPort(port)
+
+        # now we cannot find it
+        port2 = exec_lib.FindPort("foo", wrap_res=MsgPort)
+        assert port2 is None
+
+        # free name string
+        port.node.name.free_str()
+
+        # delete a message port
+        exec_lib.DeleteMsgPort(port)
+
+        return 0
+
+    exit_codes = vamos_task.run([task])
+    assert exit_codes == [0]
