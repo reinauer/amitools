@@ -23,6 +23,10 @@ def libtypes_list_new_test():
     assert str(l) == "[List:@000040,h=000044,t=000000,tp=000040,NT_DEVICE(00000003/3)]"
     assert len(l) == 0
     assert [a for a in l] == []
+    assert l.get_head() is None
+    assert l.get_tail() is None
+    assert l.rem_head() is None
+    assert l.rem_tail() is None
 
 
 def libtypes_list_min_new_test():
@@ -30,6 +34,10 @@ def libtypes_list_min_new_test():
     assert str(l) == "[MinList:@000040,h=000044,t=000000,tp=000040]"
     assert len(l) == 0
     assert [a for a in l] == []
+    assert l.get_head() is None
+    assert l.get_tail() is None
+    assert l.rem_head() is None
+    assert l.rem_tail() is None
 
 
 def libtypes_list_add_head_test():
@@ -230,6 +238,7 @@ def libtypes_list_find_name_promote_test():
     assert type(task) is Task
     proc = l.get_tail(promote=True)
     assert type(proc) is Process
+
 
 def libtypes_list_alloc_test():
     mem = MockMemory()

@@ -68,7 +68,7 @@ class ListBase:
 
     def rem_head(self, promote=False):
         node = self._head.succ.ref
-        if node is None:
+        if node.succ.ref is None:
             return None
         node.remove()
         if promote:
@@ -78,7 +78,7 @@ class ListBase:
 
     def rem_tail(self, promote=False):
         node = self.tail_pred.ref
-        if node is None:
+        if node.pred.ref is None:
             return None
         node.remove()
         if promote:
@@ -88,7 +88,7 @@ class ListBase:
 
     def get_head(self, promote=False):
         node = self._head.succ.ref
-        if not node:
+        if node.succ.ref is None:
             return None
         if promote:
             return node.promote_type()
@@ -97,8 +97,8 @@ class ListBase:
 
     def get_tail(self, promote=False):
         node = self.tail_pred.ref
-        if not node:
-            return Node
+        if node.pred.ref is None:
+            return None
         if promote:
             return node.promote_type()
         else:

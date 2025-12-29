@@ -22,12 +22,13 @@ class NodeBase:
         succ = self.succ.ref
         pred = self.pred.ref
         if succ is None or pred is None:
-            raise ValueError("remove node without succ/pred!")
+            return False
         succ.pred.ref = pred
         pred.succ.ref = succ
         if clear:
             self.succ.ref = None
             self.pred.ref = None
+        return True
 
 
 @AmigaClassDef

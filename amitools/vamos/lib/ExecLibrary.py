@@ -7,13 +7,11 @@ from amitools.vamos.libstructs import (
     ExecLibraryStruct,
     StackSwapStruct,
     IORequestStruct,
-    ListStruct,
-    NodeStruct,
     NodeType,
     SignalSemaphoreStruct,
 )
 from amitools.vamos.libtypes import ExecLibrary as ExecLibraryType, MsgPort, Message
-from amitools.vamos.libtypes import Task, List
+from amitools.vamos.libtypes import Task, List, Node
 from amitools.vamos.log import log_exec
 from amitools.vamos.error import VamosInternalError, UnsupportedFeatureError
 from amitools.vamos.lib.lexec.signalfunc import SignalFunc
@@ -517,83 +515,46 @@ class ExecLibrary(LibImpl):
 
     # ----- Nodes/Lists -----
 
-    def AddTail(self, ctx):
-        list_addr = ctx.cpu.r_reg(REG_A0)
-        node_addr = ctx.cpu.r_reg(REG_A1)
-        log_exec.info("AddTail(%06x, %06x)" % (list_addr, node_addr))
-        l = AccessStruct(ctx.mem, ListStruct, list_addr)
-        n = AccessStruct(ctx.mem, NodeStruct, node_addr)
-        n.w_s("ln_Succ", l.s_get_addr("lh_Tail"))
-        tp = l.r_s("lh_TailPred")
-        n.w_s("ln_Pred", tp)
-        AccessStruct(ctx.mem, NodeStruct, tp).w_s("ln_Succ", node_addr)
-        l.w_s("lh_TailPred", node_addr)
+    def AddTail(self, ctx, list: List, node: Node):
+        log_exec.info("AddTail(%s, %s)", list, node)
+        list.add_tail(node)
+        log_exec.debug("-> %s", list)
 
-    def AddHead(self, ctx):
-        list_addr = ctx.cpu.r_reg(REG_A0)
-        node_addr = ctx.cpu.r_reg(REG_A1)
-        log_exec.info("AddHead(%06x, %06x)" % (list_addr, node_addr))
-        l = AccessStruct(ctx.mem, ListStruct, list_addr)
-        n = AccessStruct(ctx.mem, NodeStruct, node_addr)
-        n.w_s("ln_Pred", l.s_get_addr("lh_Head"))
-        h = l.r_s("lh_Head")
-        n.w_s("ln_Succ", h)
-        AccessStruct(ctx.mem, NodeStruct, h).w_s("ln_Pred", node_addr)
-        l.w_s("lh_Head", node_addr)
+    def AddHead(self, ctx, list: List, node: Node):
+        log_exec.info("AddHead(%s, %s)", list, node)
+        list.add_head(node)
+        log_exec.debug("-> %s", list)
 
-    def Remove(self, ctx):
-        node_addr = ctx.cpu.r_reg(REG_A1)
-        n = AccessStruct(ctx.mem, NodeStruct, node_addr)
-        succ = n.r_s("ln_Succ")
-        pred = n.r_s("ln_Pred")
-        log_exec.info(
-            "Remove(%06x): ln_Pred=%06x ln_Succ=%06x" % (node_addr, pred, succ)
-        )
-        AccessStruct(ctx.mem, NodeStruct, pred).w_s("ln_Succ", succ)
-        AccessStruct(ctx.mem, NodeStruct, succ).w_s("ln_Pred", pred)
-        return node_addr
+    def RemHead(self, ctx, list: List) -> Node:
+        node = list.rem_head()
+        log_exec.info("RemHead(%s) -> %s", list, node)
+        return node
 
-    def RemHead(self, ctx):
-        list_addr = ctx.cpu.r_reg(REG_A0)
-        l = AccessStruct(ctx.mem, ListStruct, list_addr)
-        node_addr = l.r_s("lh_Head")
-        n = AccessStruct(ctx.mem, NodeStruct, node_addr)
-        succ = n.r_s("ln_Succ")
-        pred = n.r_s("ln_Pred")
-        if succ == 0:
-            log_exec.info("RemHead(%06x): null" % list_addr)
-            return 0
-        AccessStruct(ctx.mem, NodeStruct, pred).w_s("ln_Succ", succ)
-        AccessStruct(ctx.mem, NodeStruct, succ).w_s("ln_Pred", pred)
-        log_exec.info("RemHead(%06x): %06x" % (list_addr, node_addr))
-        return node_addr
+    def RemTail(self, ctx, list: List) -> Node:
+        node = list.rem_tail()
+        log_exec.info("RemTail(%s) -> %s", list, node)
+        return node
 
-    def RemTail(self, ctx):
-        list_addr = ctx.cpu.r_reg(REG_A0)
-        l = AccessStruct(ctx.mem, ListStruct, list_addr)
-        node_addr = l.r_s("lh_TailPred")
-        n = AccessStruct(ctx.mem, NodeStruct, node_addr)
-        succ = n.r_s("ln_Succ")
-        pred = n.r_s("ln_Pred")
-        if pred == 0:
-            log_exec.info("RemTail(%06x): null" % list_addr)
-            return 0
-        AccessStruct(ctx.mem, NodeStruct, pred).w_s("ln_Succ", succ)
-        AccessStruct(ctx.mem, NodeStruct, succ).w_s("ln_Pred", pred)
-        log_exec.info("RemTail(%06x): %06x" % (list_addr, node_addr))
-        return node_addr
+    def FindName(self, ctx, list: List, name: CSTR) -> Node:
+        node = list.find_name(name.str)
+        log_exec.info("FindName(%s, %s) -> %s", list, name, node)
+        return node
 
-    def FindName(self, ctx):
-        list_addr = ctx.cpu.r_reg(REG_A0)
-        name_ptr = ctx.cpu.r_reg(REG_A1)
-        name = ctx.mem.r_cstr(name_ptr)
-        list_t = List(ctx.mem, list_addr)
-        match = list_t.find_name(name)
-        log_exec.info("FindName: start=%s, name='%s' -> match=%s", list_t, name, match)
-        if match:
-            return match.get_addr()
-        else:
-            return 0
+    def Insert(self, ctx, list: List, node: Node, list_node: Node):
+        list.insert(node, list_node)
+        log_exec.info("Insert(%s, %s, %s)", list, node, list_node)
+
+    def Enqueue(self, ctx, list: List, node: Node):
+        list.enqueue(node)
+        log_exec.info("Enqueue(%s, %s)", list, node)
+
+    def Remove(self, ctx, node: Node):
+        log_exec.info("Remove(%s)", node)
+        ok = node.remove()
+        if not ok:
+            log_exec.warning("Remove(%s) not in a list?", node)
+
+    # ----- Memory Ops -----
 
     def CopyMem(self, ctx):
         source = ctx.cpu.r_reg(REG_A0)
