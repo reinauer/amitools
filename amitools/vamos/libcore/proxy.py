@@ -1,3 +1,5 @@
+from typing import get_type_hints
+
 from amitools.vamos.machine import Code, REG_D0, REG_D1
 from amitools.vamos.libtypes import TagList
 
@@ -18,11 +20,12 @@ class LibProxy:
 
 
 class LibProxyRegs:
-    def __init__(self, ctx, args, arg_regs, kwargs):
+    def __init__(self, ctx, args, arg_regs, kwargs, stub_method=None):
         assert len(args) == len(arg_regs)
         self.ctx = ctx
         self.args = args
         self.arg_regs = arg_regs
+        self.stub_method = stub_method
         # shall we return d1 as well?
         self.ret_d1 = kwargs.pop("ret_d1", False)
         # shall we wrap the return value into a type
@@ -83,7 +86,14 @@ class LibProxyRegs:
         return self.ret_d1
 
     def wrap_result(self):
-        return self.wrap_res
+        # either use forced type in proxy call argument
+        result_type = self.wrap_res
+        # or use from type hint of stub method (if any)
+        if not result_type and self.stub_method:
+            hints = get_type_hints(self.stub_method)
+            if hints and "return" in hints:
+                result_type = hints["return"]
+        return result_type
 
     def cleanup(self):
         for mem in self.auto_strings:
@@ -109,7 +119,7 @@ class LibProxyGen:
     def _gen_stub_call(self, arg_regs, stub_method):
         def stub_call(self, *args, **kwargs):
             """proxy function to call lib stub directly"""
-            regs = LibProxyRegs(self.ctx, args, arg_regs, kwargs)
+            regs = LibProxyRegs(self.ctx, args, arg_regs, kwargs, stub_method)
 
             # fill registers with arg values
             # (lib call may depend on it)

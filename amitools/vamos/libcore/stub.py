@@ -1,4 +1,5 @@
 from types import MethodType
+from typing import get_type_hints
 import time
 import traceback
 
@@ -358,6 +359,19 @@ class LibStubGen(object):
 
         return profile_func
 
+    def _copy_return_type_hint(self, in_func, out_func):
+        # get type hint
+        hints = get_type_hints(in_func)
+
+        # is a return type defined
+        if hints and "return" in hints:
+            return_type = hints["return"]
+            # attach new return annotation
+            ann = out_func.__annotations__
+            if ann is None:
+                ann = out_func.__annotations__ = {}
+            ann["return"] = return_type
+
     def _wrap_func(self, stub, impl_func, ctx, profile):
         """create a stub func for a valid impl func
         returns an unbound method for the stub instaance
@@ -388,5 +402,8 @@ class LibStubGen(object):
         # wrap profiling?
         if profile:
             func = self._gen_profile_func(fd_func, profile, func)
+
+        # copy return hint from method to wrap func for later use in proxy
+        self._copy_return_type_hint(method, func)
 
         return func
