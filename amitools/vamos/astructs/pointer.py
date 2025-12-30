@@ -125,10 +125,14 @@ class PointerType(TypeBase):
         ref = self.get_ref()
         addr = self.get_ref_addr()
         if ref:
-            return f"@({addr:08x}):{ref}"
+            # if ref is invalid then catch memory error
+            # e.g. CSTR in Node is used for non-string data
+            try:
+                return f"@({addr:08x}):{ref}"
+            except:
+                return f"@({addr:08x}):???"
         else:
             return "@NULL"
-        return str(self.get_ref())
 
     def __int__(self):
         return self.get_ref_addr()

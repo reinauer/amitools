@@ -7,17 +7,16 @@ from amitools.vamos.libstructs import (
     ExecLibraryStruct,
     StackSwapStruct,
     IORequestStruct,
-    ListStruct,
-    NodeStruct,
     NodeType,
     SignalSemaphoreStruct,
 )
-from amitools.vamos.libtypes import ExecLibrary as ExecLibraryType
-from amitools.vamos.libtypes import Task, List
+from amitools.vamos.libtypes import ExecLibrary as ExecLibraryType, MsgPort, Message
+from amitools.vamos.libtypes import Task, List, Node
 from amitools.vamos.log import log_exec
 from amitools.vamos.error import VamosInternalError, UnsupportedFeatureError
 from amitools.vamos.lib.lexec.signalfunc import SignalFunc
 from amitools.vamos.lib.lexec.taskfunc import TaskFunc
+from amitools.vamos.lib.lexec.msgfunc import MessageFunc
 from .lexec.PortManager import PortManager
 from .lexec.SemaphoreManager import SemaphoreManager
 from .lexec.Pool import Pool
@@ -37,10 +36,11 @@ class ExecLibrary(LibImpl):
         self._poolid = 0x1000
         self.exec_lib = ExecLibraryType(ctx.mem, base_addr)
         # init lib list
-        self.exec_lib.lib_list.new_list(NodeType.NT_LIBRARY)
-        self.exec_lib.device_list.new_list(NodeType.NT_DEVICE)
-        self.exec_lib.task_ready.new_list(NodeType.NT_TASK)
-        self.exec_lib.task_wait.new_list(NodeType.NT_TASK)
+        self.exec_lib.lib_list.new(NodeType.NT_LIBRARY)
+        self.exec_lib.device_list.new(NodeType.NT_DEVICE)
+        self.exec_lib.task_ready.new(NodeType.NT_TASK)
+        self.exec_lib.task_wait.new(NodeType.NT_TASK)
+        self.exec_lib.port_list.new(NodeType.NT_MSGPORT)
         # set some system contants
         attn_flags = 0
         if ctx.cpu_name == "68030(fake)":
@@ -57,6 +57,9 @@ class ExecLibrary(LibImpl):
         self.mem = ctx.mem
         self.signal_func = SignalFunc(ctx, self.exec_lib)
         self.task_func = TaskFunc(ctx, self.exec_lib)
+        self.msg_func = MessageFunc(
+            ctx, self.exec_lib, self.signal_func, self.task_func, self.port_mgr
+        )
 
     # helper
 
@@ -65,7 +68,7 @@ class ExecLibrary(LibImpl):
         sp = ctx.cpu.r_reg(REG_A7)
         return ctx.mem.r32(sp)
 
-    # ----- System -----
+    # ----- Signals -----
 
     def AllocSignal(self, ctx, signal_num: BYTE):
         return self.signal_func.alloc_signal(signal_num.val)
@@ -99,6 +102,8 @@ class ExecLibrary(LibImpl):
 
     def Permit(self, ctx):
         self.signal_func.permit()
+
+    # ----- Tasks -----
 
     def FindTask(self, ctx, task_name: CSTR) -> Task:
         return self.task_func.find_task(task_name.str)
@@ -296,6 +301,8 @@ class ExecLibrary(LibImpl):
         log_exec.info("FindResident: '%s'" % (name))
         return 0
 
+    # ----- Pools -----
+
     def CreatePool(self, ctx):
         # need some sort of uniq id.
         # HACK: this is a hack to produce private uniq ids
@@ -423,43 +430,34 @@ class ExecLibrary(LibImpl):
 
     # ----- Message Passing -----
 
-    def PutMsg(self, ctx):
-        port_addr = ctx.cpu.r_reg(REG_A0)
-        msg_addr = ctx.cpu.r_reg(REG_A1)
-        log_exec.info("PutMsg: port=%06x msg=%06x" % (port_addr, msg_addr))
-        has_port = self.port_mgr.has_port(port_addr)
-        if not has_port:
-            raise VamosInternalError(
-                "PutMsg: on invalid Port (%06x) called!" % port_addr
-            )
-        self.port_mgr.put_msg(port_addr, msg_addr)
+    def PutMsg(self, ctx, port: MsgPort, msg: Message):
+        return self.msg_func.put_msg(port, msg)
 
-    def GetMsg(self, ctx):
-        port_addr = ctx.cpu.r_reg(REG_A0)
-        log_exec.info("GetMsg: port=%06x" % (port_addr))
-        has_port = self.port_mgr.has_port(port_addr)
-        if not has_port:
-            raise VamosInternalError(
-                "GetMsg: on invalid Port (%06x) called!" % port_addr
-            )
-        msg_addr = self.port_mgr.get_msg(port_addr)
-        if msg_addr != None:
-            log_exec.info("GetMsg: got message %06x" % (msg_addr))
-            return msg_addr
-        else:
-            log_exec.info("GetMsg: no message available!")
-            return 0
+    def GetMsg(self, ctx, port: MsgPort) -> Message:
+        return self.msg_func.get_msg(port)
 
-    def CreateMsgPort(self, ctx):
-        port = self.port_mgr.create_port("exec_port", None)
-        log_exec.info("CreateMsgPort: -> port=%06x" % (port))
-        return port
+    def CreateMsgPort(self, ctx) -> MsgPort:
+        return self.msg_func.create_msg_port()
 
-    def DeleteMsgPort(self, ctx):
-        port = ctx.cpu.r_reg(REG_A0)
-        log_exec.info("DeleteMsgPort(%06x)" % port)
-        self.port_mgr.free_port(port)
-        return 0
+    def DeleteMsgPort(self, ctx, msg_port: MsgPort):
+        return self.msg_func.delete_msg_port(msg_port)
+
+    def WaitPort(self, ctx, msg_port: MsgPort) -> Message:
+        return self.msg_func.wait_port(msg_port)
+
+    def AddPort(self, ctx, msg_port: MsgPort):
+        return self.msg_func.add_port(msg_port)
+
+    def RemPort(self, ctx, msg_port: MsgPort):
+        return self.msg_func.rem_port(msg_port)
+
+    def FindPort(self, ctx, name: CSTR) -> MsgPort:
+        return self.msg_func.find_port(name)
+
+    def ReplyMsg(self, ctx, msg: Message):
+        return self.msg_func.reply_msg(msg)
+
+    # ----- IOReq/Devices -----
 
     def CreateIORequest(self, ctx):
         port = ctx.cpu.r_reg(REG_A0)
@@ -515,100 +513,48 @@ class ExecLibrary(LibImpl):
                 self.lib_mgr.close_lib(dev_addr)
                 io.w_s("io_Device", 0)
 
-    def WaitPort(self, ctx):
-        port_addr = ctx.cpu.r_reg(REG_A0)
-        log_exec.info("WaitPort: port=%06x" % (port_addr))
-        has_port = self.port_mgr.has_port(port_addr)
-        if not has_port:
-            raise VamosInternalError(
-                "WaitPort: on invalid Port (%06x) called!" % port_addr
-            )
-        has_msg = self.port_mgr.has_msg(port_addr)
-        if not has_msg:
-            raise UnsupportedFeatureError(
-                "WaitPort on empty message queue called: Port (%06x)" % port_addr
-            )
-        msg_addr = self.port_mgr.peek_msg(port_addr)
-        log_exec.info("WaitPort: peek message %06x" % (msg_addr))
-        return msg_addr
+    # ----- Nodes/Lists -----
 
-    def AddTail(self, ctx):
-        list_addr = ctx.cpu.r_reg(REG_A0)
-        node_addr = ctx.cpu.r_reg(REG_A1)
-        log_exec.info("AddTail(%06x, %06x)" % (list_addr, node_addr))
-        l = AccessStruct(ctx.mem, ListStruct, list_addr)
-        n = AccessStruct(ctx.mem, NodeStruct, node_addr)
-        n.w_s("ln_Succ", l.s_get_addr("lh_Tail"))
-        tp = l.r_s("lh_TailPred")
-        n.w_s("ln_Pred", tp)
-        AccessStruct(ctx.mem, NodeStruct, tp).w_s("ln_Succ", node_addr)
-        l.w_s("lh_TailPred", node_addr)
+    def AddTail(self, ctx, list: List, node: Node):
+        log_exec.info("AddTail(%s, %s)", list, node)
+        list.add_tail(node)
+        log_exec.debug("-> %s", list)
 
-    def AddHead(self, ctx):
-        list_addr = ctx.cpu.r_reg(REG_A0)
-        node_addr = ctx.cpu.r_reg(REG_A1)
-        log_exec.info("AddHead(%06x, %06x)" % (list_addr, node_addr))
-        l = AccessStruct(ctx.mem, ListStruct, list_addr)
-        n = AccessStruct(ctx.mem, NodeStruct, node_addr)
-        n.w_s("ln_Pred", l.s_get_addr("lh_Head"))
-        h = l.r_s("lh_Head")
-        n.w_s("ln_Succ", h)
-        AccessStruct(ctx.mem, NodeStruct, h).w_s("ln_Pred", node_addr)
-        l.w_s("lh_Head", node_addr)
+    def AddHead(self, ctx, list: List, node: Node):
+        log_exec.info("AddHead(%s, %s)", list, node)
+        list.add_head(node)
+        log_exec.debug("-> %s", list)
 
-    def Remove(self, ctx):
-        node_addr = ctx.cpu.r_reg(REG_A1)
-        n = AccessStruct(ctx.mem, NodeStruct, node_addr)
-        succ = n.r_s("ln_Succ")
-        pred = n.r_s("ln_Pred")
-        log_exec.info(
-            "Remove(%06x): ln_Pred=%06x ln_Succ=%06x" % (node_addr, pred, succ)
-        )
-        AccessStruct(ctx.mem, NodeStruct, pred).w_s("ln_Succ", succ)
-        AccessStruct(ctx.mem, NodeStruct, succ).w_s("ln_Pred", pred)
-        return node_addr
+    def RemHead(self, ctx, list: List) -> Node:
+        node = list.rem_head()
+        log_exec.info("RemHead(%s) -> %s", list, node)
+        return node
 
-    def RemHead(self, ctx):
-        list_addr = ctx.cpu.r_reg(REG_A0)
-        l = AccessStruct(ctx.mem, ListStruct, list_addr)
-        node_addr = l.r_s("lh_Head")
-        n = AccessStruct(ctx.mem, NodeStruct, node_addr)
-        succ = n.r_s("ln_Succ")
-        pred = n.r_s("ln_Pred")
-        if succ == 0:
-            log_exec.info("RemHead(%06x): null" % list_addr)
-            return 0
-        AccessStruct(ctx.mem, NodeStruct, pred).w_s("ln_Succ", succ)
-        AccessStruct(ctx.mem, NodeStruct, succ).w_s("ln_Pred", pred)
-        log_exec.info("RemHead(%06x): %06x" % (list_addr, node_addr))
-        return node_addr
+    def RemTail(self, ctx, list: List) -> Node:
+        node = list.rem_tail()
+        log_exec.info("RemTail(%s) -> %s", list, node)
+        return node
 
-    def RemTail(self, ctx):
-        list_addr = ctx.cpu.r_reg(REG_A0)
-        l = AccessStruct(ctx.mem, ListStruct, list_addr)
-        node_addr = l.r_s("lh_TailPred")
-        n = AccessStruct(ctx.mem, NodeStruct, node_addr)
-        succ = n.r_s("ln_Succ")
-        pred = n.r_s("ln_Pred")
-        if pred == 0:
-            log_exec.info("RemTail(%06x): null" % list_addr)
-            return 0
-        AccessStruct(ctx.mem, NodeStruct, pred).w_s("ln_Succ", succ)
-        AccessStruct(ctx.mem, NodeStruct, succ).w_s("ln_Pred", pred)
-        log_exec.info("RemTail(%06x): %06x" % (list_addr, node_addr))
-        return node_addr
+    def FindName(self, ctx, list: List, name: CSTR) -> Node:
+        node = list.find_name(name.str)
+        log_exec.info("FindName(%s, %s) -> %s", list, name, node)
+        return node
 
-    def FindName(self, ctx):
-        list_addr = ctx.cpu.r_reg(REG_A0)
-        name_ptr = ctx.cpu.r_reg(REG_A1)
-        name = ctx.mem.r_cstr(name_ptr)
-        list_t = List(ctx.mem, list_addr)
-        match = list_t.find_name(name)
-        log_exec.info("FindName: start=%s, name='%s' -> match=%s", list_t, name, match)
-        if match:
-            return match.get_addr()
-        else:
-            return 0
+    def Insert(self, ctx, list: List, node: Node, list_node: Node):
+        list.insert(node, list_node)
+        log_exec.info("Insert(%s, %s, %s)", list, node, list_node)
+
+    def Enqueue(self, ctx, list: List, node: Node):
+        list.enqueue(node)
+        log_exec.info("Enqueue(%s, %s)", list, node)
+
+    def Remove(self, ctx, node: Node):
+        log_exec.info("Remove(%s)", node)
+        ok = node.remove()
+        if not ok:
+            log_exec.warning("Remove(%s) not in a list?", node)
+
+    # ----- Memory Ops -----
 
     def CopyMem(self, ctx):
         source = ctx.cpu.r_reg(REG_A0)

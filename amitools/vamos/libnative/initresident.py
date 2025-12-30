@@ -42,7 +42,7 @@ class InitRes(object):
             # fill lib
             lib = Library(self.mem, lib_base)
             flags = LibFlags.LIBF_CHANGED | LibFlags.LIBF_SUMUSED
-            lib.new_lib(version=res.version, type=res.type.val, flags=flags)
+            lib.new(version=res.version, type=res.type.val, flags=flags)
             lib.name.aptr = res.name.aptr
             lib.id_string.aptr = res.id_string.aptr
 

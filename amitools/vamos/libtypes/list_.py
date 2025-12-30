@@ -42,6 +42,10 @@ class ListBase:
             l += 1
         return l
 
+    def is_empty(self):
+        node = self._head.succ.ref
+        return node.succ.ref is None
+
     def to_list(self):
         return [a for a in self]
 
@@ -62,19 +66,43 @@ class ListBase:
         node.pred.ref = tp
         tp.succ.ref = node
 
-    def rem_head(self):
+    def rem_head(self, promote=False):
         node = self._head.succ.ref
-        if node is None:
+        if node.succ.ref is None:
             return None
         node.remove()
-        return node
+        if promote:
+            return node.promote_type()
+        else:
+            return node
 
-    def rem_tail(self):
+    def rem_tail(self, promote=False):
         node = self.tail_pred.ref
-        if node is None:
+        if node.pred.ref is None:
             return None
         node.remove()
-        return node
+        if promote:
+            return node.promote_type()
+        else:
+            return node
+
+    def get_head(self, promote=False):
+        node = self._head.succ.ref
+        if node.succ.ref is None:
+            return None
+        if promote:
+            return node.promote_type()
+        else:
+            return node
+
+    def get_tail(self, promote=False):
+        node = self.tail_pred.ref
+        if node.pred.ref is None:
+            return None
+        if promote:
+            return node.promote_type()
+        else:
+            return node
 
     def insert(self, node, pred):
         if pred is not None and pred != self._head:
@@ -108,7 +136,7 @@ class MinList(MinListStruct, ListBase):
             self.tail_pred.aptr,
         )
 
-    def new_list(self):
+    def new(self):
         self.head.ref = self._tail
         self.tail.ref = None
         self.tail_pred.ref = self._head
@@ -133,10 +161,13 @@ class List(ListStruct, ListBase):
             self.type,
         )
 
-    def get_path(self, path):
+    def get_path(self, path, promote=False):
         # allow to search list via arg
         if len(path) == 0:
-            return self
+            if promote:
+                return self.promote_type()
+            else:
+                return self
         # arg?
         arg = self._get_path_arg(path)
         if arg:
@@ -147,7 +178,7 @@ class List(ListStruct, ListBase):
 
     # ----- list ops -----
 
-    def new_list(self, lt):
+    def new(self, lt):
         self.type.val = lt
         self.head.ref = self._tail
         self.tail.ref = None
@@ -164,16 +195,22 @@ class List(ListStruct, ListBase):
             pred = ln
         self.add_tail(node)
 
-    def find_names(self, name):
+    def find_names(self, name, promote=False):
         """this method is a generator delivering all matches"""
-        for node in self:
+        for node in ListIter(self, None):
             node_name = node.name.str
             if node_name == name:
-                yield node
+                if promote:
+                    yield node.promote_type()
+                else:
+                    yield node
 
-    def find_name(self, name):
+    def find_name(self, name, promote=False):
         """this method is a function returning the first match"""
-        for node in self:
+        for node in ListIter(self, None):
             node_name = node.name.str
             if node_name == name:
-                return node
+                if promote:
+                    return node.promote_type()
+                else:
+                    return node

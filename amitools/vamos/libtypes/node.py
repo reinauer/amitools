@@ -2,6 +2,7 @@ from amitools.vamos.libstructs import NodeStruct, NodeType, MinNodeStruct, Libra
 from amitools.vamos.astructs import AmigaClassDef
 from amitools.vamos.libtypes.process import Process
 from amitools.vamos.libtypes.task import Task
+from amitools.vamos.libtypes.msg import Message, MsgPort
 
 
 node_map = {
@@ -9,6 +10,10 @@ node_map = {
     NodeType.NT_PROCESS: Process,
     NodeType.NT_DEVICE: LibraryStruct,
     NodeType.NT_LIBRARY: LibraryStruct,
+    NodeType.NT_MESSAGE: Message,
+    NodeType.NT_FREEMSG: Message,
+    NodeType.NT_REPLYMSG: Message,
+    NodeType.NT_MSGPORT: MsgPort,
 }
 
 
@@ -17,12 +22,13 @@ class NodeBase:
         succ = self.succ.ref
         pred = self.pred.ref
         if succ is None or pred is None:
-            raise ValueError("remove node without succ/pred!")
+            return False
         succ.pred.ref = pred
         pred.succ.ref = succ
         if clear:
             self.succ.ref = None
             self.pred.ref = None
+        return True
 
 
 @AmigaClassDef

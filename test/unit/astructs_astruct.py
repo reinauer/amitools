@@ -38,6 +38,11 @@ class SubStruct(AmigaStruct):
     # = 32
 
 
+@AmigaStructDef
+class OtherStruct(AmigaStruct):
+    _format = [(WORD, "os_Word")]
+
+
 def astructs_astruct_base_class_test():
     # check class members
     assert MyStruct.sdef.get_type_name() == "My"
@@ -213,6 +218,20 @@ def astructs_astruct_sub_struct_inst_test():
     assert ss.get_path("") is ss
     assert ss.get_path("ss_My") is ms
     assert ss.get_path("ss_My.ms_Word") is ms.get("ms_Word")
+    # clone ss into MyStruct
+    ms = ss.clone(MyStruct)
+    # cast ms back to ss
+    ss2 = ms.cast(SubStruct)
+    assert ss == ss2
+    # cast not possible if not a struct
+    with pytest.raises(ValueError):
+        ms.cast(WORD)
+    # cast ss to ms (not needed but possible)
+    ms2 = ss.cast(MyStruct)
+    assert ms2 == ms
+    # case to other struct not possible
+    with pytest.raises(ValueError):
+        ms.cast(OtherStruct)
 
 
 def astructs_astruct_baddr_test():
@@ -251,6 +270,17 @@ def astructs_astruct_alloc_test():
     assert res.ms_Word.val == 21
     assert res.ms_Pad.val == 42
     res.free()
+    assert alloc.is_all_free()
+
+
+def astructs_astruct_alloc2_test():
+    mem = MockMemory()
+    alloc = MemoryAlloc(mem)
+    res = MyStruct.alloc(alloc, ms_Word=21, ms_Pad=42)
+    assert type(res) is MyStruct
+    assert res.ms_Word.val == 21
+    assert res.ms_Pad.val == 42
+    res.free(alloc)
     assert alloc.is_all_free()
 
 

@@ -63,10 +63,26 @@ class TypeBase:
         if reg:
             assert cpu
 
+    def dump(self, print_func=print, **kw_args):
+        """dump the instance's contents"""
+        from .dump import TypeDumper
+
+        dumper = TypeDumper(print_func)
+        dumper.dump_obj(self, **kw_args)
+
     def clone(self, cls):
         """clone type into a new class"""
-        kw_args = {"alloc": self._cpu, "mem_obj": self._mem_obj}
-        return cls(self._mem, self._addr, **kw_args)
+        kw_args = {
+            "mem": self._mem,
+            "addr": self._addr,
+            "cpu": self._cpu,
+            "reg": self._reg,
+            "offset": self._offset,
+            "base_offset": self._base_offset,
+            "alloc": self._alloc,
+            "mem_obj": self._mem_obj,
+        }
+        return cls(**kw_args)
 
     def __eq__(self, other):
         if type(other) is int:
@@ -200,7 +216,12 @@ class TypeBase:
     def _free(cls, alloc, mem_obj):
         alloc.free_memory(mem_obj)
 
-    def free(self):
+    def free(self, alloc=None):
+        # rebind object if it was bound somewhere else
+        if alloc:
+            self._alloc = alloc
+            self._mem_obj = alloc.get_memory(self._addr)
+
         if self._alloc and self._mem_obj:
             self._free(self._alloc, self._mem_obj)
             self._alloc = None

@@ -18,7 +18,7 @@ def setup(path_mgr=None):
         alloc, name="exec.library", id_string="bla", neg_size=520 * 6
     )
     assert exec_lib.LibNode.neg_size.val == 520 * 6
-    exec_lib.new_lib()
+    exec_lib.new()
     exec_lib.fill_funcs()
     exec_base = exec_lib.get_addr()
     mem.w32(4, exec_base)
