@@ -8,7 +8,7 @@ def pytask_exec_msg_create_delete_port_test(vamos_task):
         exec_lib = ctx.proxies.get_exec_lib_proxy()
 
         # create a new port
-        port = exec_lib.CreateMsgPort(wrap_res=MsgPort)
+        port = exec_lib.CreateMsgPort()
         assert type(port) is MsgPort
 
         # delete a message port
@@ -26,11 +26,11 @@ def pytask_exec_msg_put_get_test(vamos_task):
         exec_lib = ctx.proxies.get_exec_lib_proxy()
 
         # create a new port
-        port = exec_lib.CreateMsgPort(wrap_res=MsgPort)
+        port = exec_lib.CreateMsgPort()
         assert type(port) is MsgPort
 
         # port is empty
-        msg = exec_lib.GetMsg(port, wrap_res=MsgPort)
+        msg = exec_lib.GetMsg(port)
         assert msg is None
 
         # alloc message
@@ -41,14 +41,14 @@ def pytask_exec_msg_put_get_test(vamos_task):
         exec_lib.PutMsg(port, msg)
 
         # get message from port
-        msg2 = exec_lib.GetMsg(port, wrap_res=Message)
+        msg2 = exec_lib.GetMsg(port)
         assert msg2
 
         # got same message
         assert msg == msg2
 
         # port empty again
-        msg3 = exec_lib.GetMsg(port, wrap_res=MsgPort)
+        msg3 = exec_lib.GetMsg(port)
         assert msg3 is None
 
         # delete a message port
@@ -68,11 +68,11 @@ def pytask_exec_msg_reply_test(vamos_task):
         exec_lib = ctx.proxies.get_exec_lib_proxy()
 
         # create a new port
-        port = exec_lib.CreateMsgPort(wrap_res=MsgPort)
+        port = exec_lib.CreateMsgPort()
         assert type(port) is MsgPort
 
         # port is empty
-        msg = exec_lib.GetMsg(port, wrap_res=MsgPort)
+        msg = exec_lib.GetMsg(port)
         assert msg is None
 
         # alloc message
@@ -86,14 +86,14 @@ def pytask_exec_msg_reply_test(vamos_task):
         exec_lib.ReplyMsg(msg)
 
         # get message from port
-        msg2 = exec_lib.GetMsg(port, wrap_res=Message)
+        msg2 = exec_lib.GetMsg(port)
         assert msg2
 
         # got same message
         assert msg == msg2
 
         # port empty again
-        msg3 = exec_lib.GetMsg(port, wrap_res=MsgPort)
+        msg3 = exec_lib.GetMsg(port)
         assert msg3 is None
 
         # delete a message port
@@ -113,7 +113,7 @@ def pytask_exec_msg_signal_test(vamos_task):
         exec_lib = ctx.proxies.get_exec_lib_proxy()
 
         # create a new port
-        port = exec_lib.CreateMsgPort(wrap_res=MsgPort)
+        port = exec_lib.CreateMsgPort()
         assert type(port) is MsgPort
 
         # get sigmask
@@ -136,7 +136,7 @@ def pytask_exec_msg_signal_test(vamos_task):
         assert new_mask & sig_mask == sig_mask
 
         # get message from port
-        msg2 = exec_lib.GetMsg(port, wrap_res=Message)
+        msg2 = exec_lib.GetMsg(port)
         assert msg2
 
         # got same message
@@ -159,7 +159,7 @@ def pytask_exec_msg_wait_port_test(vamos_task):
         exec_lib = ctx.proxies.get_exec_lib_proxy()
 
         # create a new port
-        port = exec_lib.CreateMsgPort(wrap_res=MsgPort)
+        port = exec_lib.CreateMsgPort()
         assert type(port) is MsgPort
 
         # alloc message
@@ -192,28 +192,28 @@ def pytask_exec_msg_add_rem_port_test(vamos_task):
         exec_lib = ctx.proxies.get_exec_lib_proxy()
 
         # create a new port
-        port = exec_lib.CreateMsgPort(wrap_res=MsgPort)
+        port = exec_lib.CreateMsgPort()
         assert type(port) is MsgPort
 
         # set name
         port.node.name.alloc_str(ctx.alloc, "foo")
 
         # port is not known yet
-        port2 = exec_lib.FindPort("foo", wrap_res=MsgPort)
+        port2 = exec_lib.FindPort("foo")
         assert port2 is None
 
         # add port
         exec_lib.AddPort(port)
 
         # now we could find port
-        port2 = exec_lib.FindPort("foo", wrap_res=MsgPort)
+        port2 = exec_lib.FindPort("foo")
         assert port2 == port
 
         # remove port again
         exec_lib.RemPort(port)
 
         # now we cannot find it
-        port2 = exec_lib.FindPort("foo", wrap_res=MsgPort)
+        port2 = exec_lib.FindPort("foo")
         assert port2 is None
 
         # free name string

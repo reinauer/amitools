@@ -100,7 +100,7 @@ def pytask_exec_list_find_name_test(vamos_task):
         h = ListHelper(ctx.alloc)
 
         # find name
-        node = exec_lib.FindName(h.list, "node1", wrap_res=Node)
+        node = exec_lib.FindName(h.list, "node1")
         assert node is None
 
         # add tail
@@ -108,7 +108,7 @@ def pytask_exec_list_find_name_test(vamos_task):
         assert h.list.to_list() == [h.node1]
 
         # find name
-        node = exec_lib.FindName(h.list, "node1", wrap_res=Node)
+        node = exec_lib.FindName(h.list, "node1")
         assert node == h.node1
 
         # free list

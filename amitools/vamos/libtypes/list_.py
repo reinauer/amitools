@@ -46,11 +46,11 @@ class ListBase:
         node = self._head.succ.ref
         return node.succ.ref is None
 
-    def to_list(self):
-        return [a for a in self]
+    def to_list(self, promote=False):
+        return [a for a in ListIter(self, promote=promote)]
 
-    def iter_at(self, node):
-        return ListIter(self, node)
+    def iter_at(self, node, promote=False):
+        return ListIter(self, start_node=node, promote=promote)
 
     def add_head(self, node):
         n = self._head.succ.ref
@@ -150,7 +150,12 @@ class List(ListStruct, ListBase):
         self._tail = Node(mem, self.addr + 4)
 
     def __iter__(self):
-        return ListIter(self, promote=True)
+        """default Python iter is returning Nodes and does not promote"""
+        return ListIter(self, promote=False)
+
+    def iter(self, **kw_args):
+        """alternative iterator that allows to pass paramters"""
+        return ListIter(self, **kw_args)
 
     def __str__(self):
         return "[List:@%06x,h=%06x,t=%06x,tp=%06x,%s]" % (

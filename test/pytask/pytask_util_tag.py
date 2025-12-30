@@ -35,11 +35,11 @@ def pytask_util_tag_find_tag_item_test(vamos_task):
         tl = TagList.alloc(ctx.alloc, (MyTag.FOO_TAG, 1), (MyTag.BAR_TAG, 2))
         assert tl is not None
         # test func
-        tag = lib.FindTagItem(MyTag.BAR_TAG, tl, wrap_res=TagItem)
+        tag = lib.FindTagItem(MyTag.BAR_TAG, tl)
         assert type(tag) is TagItem
         assert tag.get_addr() == tl.get_addr() + 8
         assert tag.get_tag() == MyTag.BAR_TAG
-        tag = lib.FindTagItem(MyTag.BAZ_TAG, tl, wrap_res=TagItem)
+        tag = lib.FindTagItem(MyTag.BAZ_TAG, tl)
         assert tag is None
         # free tag list
         tl.free()
@@ -180,7 +180,7 @@ def pytask_util_map_tags_test(vamos_task):
 
 def pytask_util_alloc_free_tag_items_test(vamos_task):
     def func(ctx, lib):
-        tag_list = lib.AllocateTagItems(8, wrap_res=TagList)
+        tag_list = lib.AllocateTagItems(8)
         assert tag_list is not None
         lib.FreeTagItems(tag_list)
 
@@ -193,7 +193,7 @@ def pytask_util_clone_tag_items_test(vamos_task):
         assert tag_list is not None
 
         # clone list
-        clone_list = lib.CloneTagItems(tag_list, wrap_res=TagList)
+        clone_list = lib.CloneTagItems(tag_list)
         assert clone_list is not None
 
         # check for equality

@@ -25,8 +25,8 @@ class Ctx:
 
     def check_exec(self, this_task, task_ready, task_wait):
         assert self.exec_lib.this_task.ref == this_task
-        assert self.exec_lib.task_ready.to_list() == task_ready
-        assert self.exec_lib.task_wait.to_list() == task_wait
+        assert self.exec_lib.task_ready.to_list(promote=True) == task_ready
+        assert self.exec_lib.task_wait.to_list(promote=True) == task_wait
 
     def set_check_list(self, check_list):
         self.count = 0

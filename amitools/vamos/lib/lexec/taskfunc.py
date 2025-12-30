@@ -18,16 +18,16 @@ class TaskFunc(FuncBase):
                 return Task(self.ctx.mem, addr)
             # ready list?
             ready_list = self.exec_lib.task_ready
-            for task in ready_list:
-                if task.node.name.str == task_name:
-                    addr = task.addr
+            for node in ready_list:
+                if node.name.str == task_name:
+                    addr = node.addr
                     log_exec.info("Find Task '%s': ready=%08x", task_name, addr)
                     return Task(self.ctx.mem, addr)
             # wait list?
             wait_list = self.exec_lib.task_wait
-            for task in wait_list:
-                if task.node.name.str == task_name:
-                    addr = task.addr
+            for node in wait_list:
+                if node.name.str == task_name:
+                    addr = node.addr
                     log_exec.info("Find Task '%s': wait=%08x", task_name, addr)
                     return Task(self.ctx.mem, addr)
             log_exec.info("Find Task '%s': not found!")
