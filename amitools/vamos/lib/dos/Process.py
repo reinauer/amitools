@@ -80,9 +80,10 @@ class Process(DosProcess):
         self.set_cwd()
 
     def free(self):
-        self.free_cwd()
         if self.shell:
             self.free_shell_packet()
+        else:
+            self.free_cwd()
         self.free_task_struct()
         self.free_cli_struct()
         self.free_args()
