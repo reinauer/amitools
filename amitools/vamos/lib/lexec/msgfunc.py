@@ -152,7 +152,7 @@ class MessageFunc(FuncBase):
         return port
 
     def reply_msg(self, msg: Message):
-        port = msg.reply_port
+        port = msg.reply_port.ref
         log_exec.info("ReplyPort(%s) -> port %s", msg, port)
         if port is None:
             msg.node.type.val = NodeType.NT_FREEMSG
