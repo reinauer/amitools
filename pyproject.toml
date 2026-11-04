@@ -1,9 +1,9 @@
 [build-system]
-requires = ["setuptools", "setuptools-scm", "cython >= 3.0.0"]
+requires = ["setuptools>=77", "setuptools-scm>=8", "packaging>=24.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "amitools"
+name = "amitools-amifuse"
 authors = [
     {name = "Christian Vogelgsang", email = "chris@vogelgsang.org"},
 ]
@@ -25,7 +25,7 @@ classifiers = [
 dynamic = ["version", "readme"]
 
 [project.optional-dependencies]
-vamos = ["machine68k >= 0.5.0", "greenlet"]
+vamos = ["machine68k>=0.5.0", "greenlet"]
 
 [tool.setuptools]
 zip-safe = false
@@ -38,6 +38,7 @@ include = ["amitools*"]
 readme = { file="README.md", content-type="text/markdown" }
 
 [tool.setuptools_scm]
+local_scheme = "no-local-version"
 
 [project.scripts]
 fdtool = "amitools.tools.fdtool:main"
